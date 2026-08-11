@@ -123,6 +123,39 @@
     border:none;border-radius:14px;padding:15px;cursor:pointer;}
   .ts-done:active{transform:scale(.98);}
 
+  /* ============ COMPARE (screen 08) ============ */
+  .compare-hint{
+    position:absolute;left:50%;top:calc(max(12px,env(safe-area-inset-top)) + 66px);transform:translateX(-50%);
+    z-index:1500;display:none;background:var(--ember);color:#fff;font-size:13px;font-weight:600;
+    padding:9px 16px;border-radius:999px;box-shadow:0 4px 16px rgba(192,96,63,.4);white-space:nowrap;
+  }
+  .compare-hint.on{display:block;}
+  .compare-card{
+    position:absolute;left:14px;right:14px;bottom:calc(var(--sheet-peek,120px) + 20px);z-index:1600;display:none;
+  }
+  .compare-card.on{display:block;}
+  .cc-inner{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:20px;
+    padding:20px 18px 18px;box-shadow:0 10px 32px var(--shadow);}
+  .cc-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:9px;border:none;
+    background:var(--surface-2);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .cc-close svg{width:16px;height:16px;color:var(--text-2);}
+  .cc-people{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:16px;}
+  .cc-person{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;max-width:110px;}
+  .cc-av{width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid var(--ember);background:var(--surface-2);}
+  .cc-av img{width:100%;height:100%;object-fit:cover;}
+  .cc-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ember);font-size:22px;}
+  .cc-name{font-weight:600;font-size:14px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cc-tag{font-size:11px;color:var(--text-2);}
+  .cc-link{color:var(--ember);flex:none;}
+  .cc-link svg{width:26px;height:26px;}
+  .cc-dist{text-align:center;font-weight:700;font-size:34px;font-variant-numeric:tabular-nums;line-height:1;}
+  .cc-dist small{font-size:14px;font-weight:500;color:var(--text-2);margin-left:6px;}
+  .cc-times{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);}
+  .cc-time{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .cc-time svg{width:20px;height:20px;color:var(--text-2);}
+  .cc-time b{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .cc-time span{font-size:11px;color:var(--text-2);}
+
   /* ============ BOTTOM SHEET ============ */
   .sheet{
     position:absolute;left:0;right:0;bottom:0;z-index:1001;
@@ -252,14 +285,25 @@
     </div>
   </div>
 
-  <!-- Trip summary overlay (screen 05) -->
-  <div class="trip-summary" id="tripSummary">
-    <div class="ts-card">
-      <div class="ts-head">Trip complete</div>
-      <div class="ts-grid" id="tsGrid"></div>
-      <button class="ts-done" id="tsDone">Done</button>
+  <!-- Compare view (screen 08) -->
+  <div class="compare-card" id="compareCard">
+    <div class="cc-inner">
+      <button class="cc-close" id="ccClose" aria-label="Close compare">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="cc-people">
+        <div class="cc-person"><div class="cc-av" id="ccAvA"></div><div class="cc-name" id="ccNameA">A</div><div class="cc-tag">You</div></div>
+        <div class="cc-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 7h8M8 7l3-3M8 7l3 3M16 17H8M16 17l-3-3M16 17l-3 3"/></svg></div>
+        <div class="cc-person"><div class="cc-av" id="ccAvB"></div><div class="cc-name" id="ccNameB">B</div><div class="cc-tag" id="ccTagB">Other</div></div>
+      </div>
+      <div class="cc-dist"><span id="ccDist">—</span><small>apart</small></div>
+      <div class="cc-times">
+        <div class="cc-time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 4v6l-2 4M9 20l2-6"/><circle cx="12" cy="4" r="1"/></svg><b id="ccWalk">—</b><span>walking</span></div>
+        <div class="cc-time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l1-4h12l1 4M5 13h14v4H5zM7 17v2M17 17v2"/></svg><b id="ccDrive">—</b><span>driving</span></div>
+      </div>
     </div>
   </div>
+  <div class="compare-hint" id="compareHint">Tap the second person to compare</div>
 
   <div class="sheet" id="sheet">
     <div class="grip" id="grip"><span></span></div>
@@ -350,7 +394,7 @@
          <div class="ring">${avatarInner(f.id, f.name)}</div>
        </div>` });
     const m = L.marker([f.lat, f.lon], { icon:el, keyboard:false }).addTo(map);
-    m.on('click', ()=> openDetail(f.id));
+    m.on('click', ()=>{ if(comparePicking) pickCompareB(f.id); else openDetail(f.id); });
     return m;
   }
 
@@ -397,6 +441,7 @@
     for(const [id,p] of people){ if(!seen.has(id)){ map.removeLayer(p.marker); people.delete(id); } }
     renderList();
     if(selectedId) renderDetail(selectedId);
+    if(compareB) updateCompare();
   }
 
   // smooth glide + footsteps
@@ -450,7 +495,7 @@
         <div class="pa">${avatarInner(f.id,f.name)}<span class="livedot"></span></div>
         <div class="pn">${esc(f.name)}</div>
       </div>`).join('') || `<div class="empty" style="padding:8px 20px 22px">No one is sharing yet. Tap “Share location” to appear.</div>`;
-    peekrow.querySelectorAll('.peekperson').forEach(el=>el.onclick=()=>{ openSheet('half'); openDetail(el.dataset.id); });
+    peekrow.querySelectorAll('.peekperson').forEach(el=>el.onclick=()=>{ if(comparePicking){ pickCompareB(el.dataset.id); } else { openSheet('half'); openDetail(el.dataset.id); } });
     // full list
     const mp = myPos();
     flist.innerHTML = others.map(f=>{
@@ -462,7 +507,7 @@
         <div class="fright"><div class="fdist">${dist}</div>${f.battery!=null?`<div class="fbatt">${f.battery}%</div>`:''}</div>
       </div>`;
     }).join('') || `<div class="empty">When friends share their location, they’ll appear here with live speed and distance.</div>`;
-    flist.querySelectorAll('.frow').forEach(el=>el.onclick=()=>openDetail(el.dataset.id));
+    flist.querySelectorAll('.frow').forEach(el=>el.onclick=()=>{ if(comparePicking) pickCompareB(el.dataset.id); else openDetail(el.dataset.id); });
   }
   function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
 
@@ -494,10 +539,63 @@
       </div>`;
     detailBody.querySelector('#aFocus').onclick=()=>{ map.setView([f.lat,f.lon],16,{animate:true}); };
     detailBody.querySelector('#aNav').onclick=()=>{ window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}`,'_blank'); };
-    detailBody.querySelector('#aCompare').onclick=()=>{ alert('Compare: pick a second person (coming in the next slice).'); };
+    detailBody.querySelector('#aCompare').onclick=()=>{ startCompare(id); };
   }
 
-  // ---------- sheet drag ----------
+  // ---------- compare ----------
+  let compareA=null, compareB=null, comparePicking=false, compareLine=null;
+  const compareCard=document.getElementById('compareCard'), compareHint=document.getElementById('compareHint');
+
+  function startCompare(idA){
+    compareA=idA; compareB=null; comparePicking=true;
+    detail.classList.remove('show'); selectedId=null;
+    compareHint.classList.add('on');
+    openSheet('peek');
+  }
+  function pickCompareB(idB){
+    if(!comparePicking || idB===compareA) return;
+    compareB=idB; comparePicking=false;
+    compareHint.classList.remove('on');
+    renderCompare();
+  }
+  function endCompare(){
+    compareA=compareB=null; comparePicking=false;
+    compareHint.classList.remove('on');
+    compareCard.classList.remove('on');
+    if(compareLine){ map.removeLayer(compareLine); compareLine=null; }
+  }
+  document.getElementById('ccClose').onclick=endCompare;
+
+  function avInner(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
+
+  function renderCompare(){
+    const A=people.get(compareA), B=people.get(compareB);
+    if(!A||!B){ endCompare(); return; }
+    compareCard.classList.add('on');
+    document.getElementById('ccAvA').innerHTML=avInner(compareA,A.data.name);
+    document.getElementById('ccAvB').innerHTML=avInner(compareB,B.data.name);
+    document.getElementById('ccNameA').textContent=A.data.name;
+    document.getElementById('ccNameB').textContent=B.data.name;
+    document.getElementById('ccTagB').textContent='Other';
+    // "You" tag only if A is me
+    document.querySelector('#compareCard .cc-tag').textContent = (compareA===myId)?'You':'';
+    updateCompare();
+  }
+  function updateCompare(){
+    const A=people.get(compareA), B=people.get(compareB);
+    if(!A||!B){ endCompare(); return; }
+    const d=metres(A.lat,A.lon,B.lat,B.lon);
+    document.getElementById('ccDist').textContent=fmtDist(d);
+    // travel time estimates: walking 4.8 km/h, driving 30 km/h city avg
+    const walkMin=Math.max(1,Math.round(d/(4.8*1000/60)));
+    const driveMin=Math.max(1,Math.round(d/(30*1000/60)));
+    document.getElementById('ccWalk').textContent=walkMin+' min';
+    document.getElementById('ccDrive').textContent=driveMin+' min';
+    // dotted line
+    if(compareLine) map.removeLayer(compareLine);
+    const ember=getComputedStyle(document.documentElement).getPropertyValue('--ember').trim();
+    compareLine=L.polyline([[A.lat,A.lon],[B.lat,B.lon]],{color:ember,weight:3,dashArray:'2 9',opacity:.85}).addTo(map);
+  }
   const sheet=document.getElementById('sheet'), grip=document.getElementById('grip');
   function openSheet(state){ sheet.classList.remove('half','full'); if(state!=='peek') sheet.classList.add(state); }
   let dragY=null, startTf=0;
