@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>The Wanderers' Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ THEME TOKENS ============ */
+  :root[data-theme="light"]{
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F5F3EF; --sheet:#FFFFFF;
+    --text:#141210; --text-2:#6B6156; --line:#E9E4DC;
+    --ember:#C0603F; --ember-soft:rgba(192,96,63,.12);
+    --live:#4C9A5A; --shadow:rgba(40,30,20,.14);
+    --ink:#3B2A1C;                 /* footstep ink on light map */
+    --map-filter:saturate(.92) brightness(1.02);
+    --scrim:rgba(255,255,255,.86);
+  }
+  :root[data-theme="dark"]{
+    --bg:#141210; --surface:#1E1A16; --surface-2:#26211B; --sheet:#1B1712;
+    --text:#F0E7D9; --text-2:#9E9284; --line:#332C24;
+    --ember:#D3714E; --ember-soft:rgba(211,113,78,.16);
+    --live:#7FC08B; --shadow:rgba(0,0,0,.5);
+    --ink:#E4D3B0;                 /* footstep ink on dark map */
+    --map-filter:saturate(.85) brightness(.62) contrast(1.05);
+    --scrim:rgba(20,18,16,.82);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);}
+  #map{position:absolute;inset:0;background:var(--surface-2);}
+  .leaflet-tile-pane{filter:var(--map-filter);}
+  .leaflet-control-attribution{background:var(--scrim)!important;color:var(--text-2)!important;font-size:9px!important;}
+  .leaflet-control-attribution a{color:var(--ember)!important;}
+  .leaflet-control-zoom{display:none;}
+
+  /* ============ TOP BAR ============ */
+  .topbar{
+    position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:max(12px,env(safe-area-inset-top)) 14px 12px;
+    display:flex;gap:10px;align-items:center;pointer-events:none;
+  }
+  .search{
+    flex:1;pointer-events:auto;display:flex;align-items:center;gap:10px;
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;box-shadow:0 4px 16px var(--shadow);
+  }
+  .search svg{width:18px;height:18px;color:var(--text-2);flex:none;}
+  .search input{border:none;background:none;outline:none;font:inherit;font-size:15px;color:var(--text);width:100%;}
+  .search input::placeholder{color:var(--text-2);}
+  .iconbtn{
+    pointer-events:auto;width:46px;height:46px;flex:none;border-radius:14px;border:1px solid var(--line);
+    background:var(--surface);box-shadow:0 4px 16px var(--shadow);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;
+  }
+  .iconbtn svg{width:20px;height:20px;color:var(--text);}
+  .iconbtn img{width:100%;height:100%;object-fit:cover;}
+
+  /* ============ FAB ============ */
+  .fab{
+    position:absolute;right:16px;bottom:calc(var(--sheet-peek,120px) + 20px);z-index:1000;
+    display:flex;align-items:center;gap:9px;
+    background:var(--ember);color:#fff;border:none;cursor:pointer;
+    border-radius:16px;padding:15px 20px;font:inherit;font-weight:600;font-size:15px;
+    box-shadow:0 6px 20px rgba(192,96,63,.4);transition:transform .15s,background .2s;
+  }
+  .fab:active{transform:scale(.96);}
+  .fab.sharing{background:var(--surface);color:var(--text);border:1px solid var(--line);box-shadow:0 6px 20px var(--shadow);}
+  .fab .fdot{width:9px;height:9px;border-radius:50%;background:#fff;}
+  .fab.sharing .fdot{background:var(--live);animation:pulse 2s infinite;}
+  .fab svg{width:18px;height:18px;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+  /* ============ BOTTOM SHEET ============ */
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;z-index:1001;
+    background:var(--sheet);border-radius:22px 22px 0 0;
+    box-shadow:0 -6px 28px var(--shadow);
+    transform:translateY(calc(100% - var(--sheet-peek,120px)));
+    transition:transform .32s cubic-bezier(.32,.72,0,1);
+    max-height:88dvh;display:flex;flex-direction:column;
+    touch-action:none;
+  }
+  .sheet.half{transform:translateY(38dvh);}
+  .sheet.full{transform:translateY(max(8dvh,env(safe-area-inset-top)));}
+  .grip{padding:10px 0 6px;display:flex;justify-content:center;flex:none;cursor:grab;}
+  .grip span{width:38px;height:5px;border-radius:3px;background:var(--line);}
+  .sheet-head{padding:2px 20px 12px;display:flex;align-items:baseline;justify-content:space-between;flex:none;}
+  .sheet-head h2{font-size:17px;font-weight:700;}
+  .sheet-head .count{font-size:13px;color:var(--text-2);}
+
+  /* peek: avatar row */
+  .peekrow{display:flex;gap:16px;padding:2px 20px 22px;overflow-x:auto;flex:none;scrollbar-width:none;}
+  .peekrow::-webkit-scrollbar{display:none;}
+  .peekperson{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:56px;}
+  .peekperson .pa{position:relative;width:54px;height:54px;border-radius:50%;overflow:hidden;border:2px solid var(--line);background:var(--surface-2);}
+  .peekperson .pa img{width:100%;height:100%;object-fit:cover;}
+  .peekperson .pa .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--text-2);font-size:20px;}
+  .peekperson .livedot{position:absolute;right:1px;bottom:1px;width:13px;height:13px;border-radius:50%;background:var(--live);border:2px solid var(--sheet);}
+  .peekperson .pn{font-size:12px;color:var(--text-2);max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* friend list */
+  .flist{overflow-y:auto;padding:0 12px 24px;flex:1;}
+  .frow{display:flex;align-items:center;gap:13px;padding:12px 10px;border-radius:14px;cursor:pointer;transition:background .12s;}
+  .frow:active{background:var(--surface-2);}
+  .fav{position:relative;width:50px;height:50px;flex:none;border-radius:50%;overflow:hidden;border:1.5px solid var(--line);background:var(--surface-2);}
+  .fav img{width:100%;height:100%;object-fit:cover;}
+  .fav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--text-2);font-size:19px;}
+  .fmeta{flex:1;min-width:0;}
+  .fmeta .fn{font-weight:600;font-size:15px;display:flex;align-items:center;gap:7px;}
+  .fmeta .fs{font-size:13px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+  .fright{text-align:right;flex:none;}
+  .fright .fdist{font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;}
+  .fright .fbatt{font-size:12px;color:var(--text-2);margin-top:2px;}
+  .mini-live{width:7px;height:7px;border-radius:50%;background:var(--live);flex:none;}
+
+  /* friend detail */
+  .detail{position:absolute;inset:0;background:var(--sheet);z-index:2;display:flex;flex-direction:column;
+    transform:translateX(100%);transition:transform .28s cubic-bezier(.32,.72,0,1);}
+  .detail.show{transform:translateX(0);}
+  .detail-head{padding:16px 18px 12px;display:flex;align-items:center;gap:12px;flex:none;border-bottom:1px solid var(--line);}
+  .backbtn{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+  .backbtn svg{width:18px;height:18px;color:var(--text);}
+  .detail-body{overflow-y:auto;padding:22px 20px;flex:1;}
+  .dhero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;margin-bottom:24px;}
+  .dhero .dav{width:96px;height:96px;border-radius:50%;overflow:hidden;border:3px solid var(--ember);background:var(--surface-2);}
+  .dhero .dav img{width:100%;height:100%;object-fit:cover;}
+  .dhero .dav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:36px;color:var(--text-2);}
+  .dhero h3{font-size:22px;font-weight:700;}
+  .dhero .dstatus{color:var(--text-2);font-size:14px;}
+  .dhero .dlive{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--live);font-weight:600;}
+  .dstats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;}
+  .dstat{background:var(--surface-2);border-radius:14px;padding:15px;}
+  .dstat .dk{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-2);}
+  .dstat .dv{font-size:24px;font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .dstat .dv small{font-size:13px;font-weight:500;color:var(--text-2);}
+  .dactions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .daction{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 8px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:7px;font:inherit;font-size:12px;font-weight:600;color:var(--text);}
+  .daction:active{background:var(--surface-2);}
+  .daction svg{width:20px;height:20px;color:var(--ember);}
+
+  .empty{text-align:center;color:var(--text-2);padding:40px 24px;font-size:14px;line-height:1.6;}
+
+  /* markers */
+  .wm{background:none!important;border:none!important;}
+  .avatar-arrow{position:relative;width:52px;height:52px;transform:translate(-50%,-50%);}
+  .avatar-arrow .chev{position:absolute;inset:0;transition:transform .5s ease;}
+  .avatar-arrow .ring{position:absolute;left:50%;top:50%;width:40px;height:40px;transform:translate(-50%,-50%);
+    border-radius:50%;overflow:hidden;border:3px solid var(--ember);background:var(--surface);box-shadow:0 2px 8px var(--shadow);}
+  .avatar-arrow .ring img{width:100%;height:100%;object-fit:cover;}
+  .avatar-arrow .ring .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ember);font-size:16px;background:var(--surface);}
+  .fp{background:none!important;border:none!important;}
+  .fp img{width:100%;height:100%;}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="topbar">
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="search" placeholder="Search or set a destination" readonly>
+    </div>
+    <button class="iconbtn" id="themeBtn" aria-label="Toggle light or dark">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="iconbtn" id="profileBtn" aria-label="Your profile">
+      <span id="profileInitial" style="font-weight:600;color:var(--text-2)">?</span>
+      <img id="profileImg" alt="" style="display:none;">
+    </button>
+  </div>
+
+  <button class="fab" id="fab">
+    <span class="fdot"></span><span id="fabLabel">Share location</span>
+  </button>
+
+  <div class="sheet" id="sheet">
+    <div class="grip" id="grip"><span></span></div>
+    <div class="sheet-head">
+      <h2>Wanderers</h2>
+      <span class="count" id="count">nobody sharing yet</span>
+    </div>
+    <div class="peekrow" id="peekrow"></div>
+    <div class="flist" id="flist"></div>
+
+    <div class="detail" id="detail">
+      <div class="detail-head">
+        <button class="backbtn" id="detailBack" aria-label="Back to list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <strong id="detailName" style="font-size:16px;">Wanderer</strong>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- theme ----------
+  const root = document.documentElement;
+  const saved = localStorage.getItem('wm_theme');
+  if(saved) root.setAttribute('data-theme', saved);
+  document.getElementById('themeBtn').addEventListener('click', ()=>{
+    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('wm_theme', next);
+    setThemeIcon(next);
+  });
+  function setThemeIcon(t){
+    document.getElementById('themeIcon').innerHTML = t==='dark'
+      ? '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/>'
+      : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  }
+  setThemeIcon(root.getAttribute('data-theme'));
+
+  // ---------- identity ----------
+  let myId = localStorage.getItem('wm_id');
+  if(!myId){ myId = 'w-'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem('wm_id', myId); }
+  const myName = localStorage.getItem('wm_name') || '';
+  const myPhoto = localStorage.getItem('wm_photo') || '';
+  const myCircle = localStorage.getItem('wm_circle') || '';
+  if(myPhoto){ const pi=document.getElementById('profileImg'); pi.src=myPhoto; pi.style.display='block'; document.getElementById('profileInitial').style.display='none'; }
+  else if(myName){ document.getElementById('profileInitial').textContent = myName[0].toUpperCase(); }
+
+  // ---------- map ----------
+  const map = L.map('map', { zoomControl:false, attributionControl:true }).setView([41.0, 71.67], 14);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap' }).addTo(map);
+
+  const circleQS = myCircle ? ('?circles='+encodeURIComponent(myCircle)) : '';
+
+  // ---------- data plumbing ----------
+  const people = new Map();   // id -> { marker, lat, lon, tLat, tLon, data, stepAcc, side, photo }
+  const photoCache = new Map();
+  let selectedId = null;
+
+  function initials(n){ return (n||'?').trim()[0] ? (n.trim()[0].toUpperCase()) : '?'; }
+
+  function avatarInner(id, name){
+    const p = photoCache.get(id);
+    return p ? `<img src="${p}" alt="">` : `<div class="ini">${initials(name)}</div>`;
+  }
+
+  function makeMarker(f){
+    const el = L.divIcon({ className:'wm', iconSize:[52,52], html:
+      `<div class="avatar-arrow" data-id="${f.id}">
+         <svg class="chev" viewBox="0 0 52 52"><path d="M26 2 L34 12 A18 18 0 1 1 18 12 Z" fill="var(--ember)" opacity=".9"/></svg>
+         <div class="ring">${avatarInner(f.id, f.name)}</div>
+       </div>` });
+    const m = L.marker([f.lat, f.lon], { icon:el, keyboard:false }).addTo(map);
+    m.on('click', ()=> openDetail(f.id));
+    return m;
+  }
+
+  async function ensurePhotos(ids){
+    const missing = ids.filter(i => i && !photoCache.has(i));
+    if(!missing.length) return;
+    try{
+      const r = await fetch('/profile/many?ids='+encodeURIComponent(missing.join(',')),{cache:'no-store'});
+      const d = await r.json();
+      let changed = false;
+      for(const id of missing){
+        const ph = d.profiles && d.profiles[id] && d.profiles[id].photo;
+        photoCache.set(id, ph || null);
+        if(ph) changed = true;
+      }
+      if(changed){ for(const [id,p] of people){ const ring=p.marker.getElement()?.querySelector('.ring'); if(ring) ring.innerHTML=avatarInner(id,p.data.name); } renderList(); }
+    }catch(_){}
+  }
+
+  // ---------- distance/eta helpers ----------
+  function metres(aLat,aLon,bLat,bLon){ const dLat=(bLat-aLat)*111320, dLon=(bLon-aLon)*111320*Math.cos(aLat*Math.PI/180); return Math.hypot(dLat,dLon); }
+  function fmtDist(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
+  function myPos(){ const me = people.get(myId); return me ? [me.lat,me.lon] : null; }
+
+  // ---------- incoming ----------
+  function handle(data){
+    const ids = data.friends.map(f=>f.id);
+    ensurePhotos(ids);
+    const seen = new Set();
+    for(const f of data.friends){
+      seen.add(f.id);
+      let p = people.get(f.id);
+      if(!p){
+        p = { marker:makeMarker(f), lat:f.lat, lon:f.lon, tLat:f.lat, tLon:f.lon, data:f, stepAcc:0, side:1 };
+        people.set(f.id, p);
+      } else {
+        const jump = metres(p.tLat,p.tLon,f.lat,f.lon);
+        if(jump>12 || (f.speed||0)>4){ p.tLat=f.lat; p.tLon=f.lon; }
+        p.data=f;
+      }
+      // rotate chevron to heading
+      if(f.heading!=null){ const c=p.marker.getElement()?.querySelector('.chev'); if(c) c.style.transform=`rotate(${f.heading}deg)`; }
+    }
+    for(const [id,p] of people){ if(!seen.has(id)){ map.removeLayer(p.marker); people.delete(id); } }
+    renderList();
+    if(selectedId) renderDetail(selectedId);
+  }
+
+  // smooth glide + footsteps
+  function animate(){
+    for(const [id,p] of people){
+      p.lat += (p.tLat-p.lat)*0.14;
+      p.lon += (p.tLon-p.lon)*0.14;
+      p.marker.setLatLng([p.lat,p.lon]);
+      const moved = metres(p.lat,p.lon,p._plat??p.lat,p._plon??p.lon);
+      const driving = (p.data.speed||0) > 12;
+      p.stepAcc += moved;
+      if(p.stepAcc > (driving?32:9)){
+        p.stepAcc = 0; p.side*=-1;
+        dropFootstep(p.lat, p.lon, p.data.heading||0, p.side, driving, id===selectedId);
+      }
+      p._plat=p.lat; p._plon=p.lon;
+    }
+    requestAnimationFrame(animate);
+  }
+
+  function dropFootstep(lat,lon,heading,side,driving,bold){
+    const offLat=Math.cos((heading+90)*Math.PI/180)*0.00003*side;
+    const offLon=Math.sin((heading+90)*Math.PI/180)*0.00003*side;
+    const s = (driving?1:(0.9+Math.random()*0.2));
+    const rot = heading + (driving?0:(Math.random()*14-7));
+    const svg = footSvg(driving);
+    const icon = L.divIcon({ className:'fp', iconSize:[16,20], html:
+      `<img class="fp-img" style="width:${(16*s).toFixed(0)}px;height:${(20*s).toFixed(0)}px;transform:rotate(${rot}deg);opacity:${bold?0.95:0.62}" src="data:image/svg+xml,${svg}">` });
+    const m = L.marker([lat+offLat,lon+offLon],{icon,interactive:false,keyboard:false}).addTo(map);
+    const el = m.getElement()?.querySelector('.fp-img');
+    if(el){ el.animate([{opacity:0,filter:'blur(2px)'},{opacity:bold?0.95:0.62,filter:'blur(0)',offset:0.15},{opacity:bold?0.9:0.55,offset:0.5},{opacity:0,filter:'blur(1px)'}],{duration:8000,easing:'ease-out'}); }
+    setTimeout(()=>map.removeLayer(m), 8000);
+  }
+  function footSvg(driving){
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#3B2A1C';
+    const body = driving
+      ? `<rect x='5' y='2' width='6' height='16' rx='3' fill='${ink}'/>`
+      : `<path d='M8 1 C10.6 1.2 11.8 4 11.4 6.6 C11 9 9.6 10.8 8 11 C6.2 10.8 4.2 9 3.8 6.6 C3.4 4 5.4 1.2 8 1 Z' fill='${ink}'/><ellipse cx='8' cy='16' rx='2.6' ry='3' fill='${ink}'/>`;
+    return encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 20'>${body}</svg>`);
+  }
+
+  // ---------- sheet rendering ----------
+  const peekrow=document.getElementById('peekrow'), flist=document.getElementById('flist'), countEl=document.getElementById('count');
+  function renderList(){
+    const arr=[...people.values()].map(p=>p.data).filter(f=>f.id!==myId || people.size===1);
+    const others=[...people.values()].map(p=>p.data);
+    countEl.textContent = others.length ? `${others.length} sharing now` : 'nobody sharing yet';
+    // peek avatars
+    peekrow.innerHTML = others.map(f=>`
+      <div class="peekperson" data-id="${f.id}">
+        <div class="pa">${avatarInner(f.id,f.name)}<span class="livedot"></span></div>
+        <div class="pn">${esc(f.name)}</div>
+      </div>`).join('') || `<div class="empty" style="padding:8px 20px 22px">No one is sharing yet. Tap “Share location” to appear.</div>`;
+    peekrow.querySelectorAll('.peekperson').forEach(el=>el.onclick=()=>{ openSheet('half'); openDetail(el.dataset.id); });
+    // full list
+    const mp = myPos();
+    flist.innerHTML = others.map(f=>{
+      const dist = mp ? fmtDist(metres(mp[0],mp[1],f.lat,f.lon)) : '—';
+      const sub = f.status || (f.speed>3 ? `moving · ${Math.round(f.speed)} km/h` : 'nearby');
+      return `<div class="frow" data-id="${f.id}">
+        <div class="fav">${avatarInner(f.id,f.name)}</div>
+        <div class="fmeta"><div class="fn">${esc(f.name)} <span class="mini-live"></span></div><div class="fs">${esc(sub)}</div></div>
+        <div class="fright"><div class="fdist">${dist}</div>${f.battery!=null?`<div class="fbatt">${f.battery}%</div>`:''}</div>
+      </div>`;
+    }).join('') || `<div class="empty">When friends share their location, they’ll appear here with live speed and distance.</div>`;
+    flist.querySelectorAll('.frow').forEach(el=>el.onclick=()=>openDetail(el.dataset.id));
+  }
+  function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+  // ---------- detail ----------
+  const detail=document.getElementById('detail'), detailBody=document.getElementById('detailBody'), detailName=document.getElementById('detailName');
+  function openDetail(id){ selectedId=id; renderDetail(id); detail.classList.add('show'); }
+  document.getElementById('detailBack').onclick=()=>{ detail.classList.remove('show'); selectedId=null; };
+  function renderDetail(id){
+    const p=people.get(id); if(!p){ detail.classList.remove('show'); return; }
+    const f=p.data; detailName.textContent=f.name;
+    const mp=myPos(); const dist=mp?metres(mp[0],mp[1],f.lat,f.lon):null;
+    const etaMin = (dist!=null) ? Math.max(1,Math.round(dist/((Math.max(f.speed,4.5))*1000/60))) : null;
+    detailBody.innerHTML=`
+      <div class="dhero">
+        <div class="dav">${avatarInner(id,f.name)}</div>
+        <div><h3>${esc(f.name)}</h3>${f.status?`<div class="dstatus">${esc(f.status)}</div>`:''}</div>
+        <div class="dlive"><span class="mini-live"></span>live · updated ${f.ageSec}s ago</div>
+      </div>
+      <div class="dstats">
+        <div class="dstat"><div class="dk">Speed</div><div class="dv">${Math.round(f.speed)}<small> km/h</small></div></div>
+        <div class="dstat"><div class="dk">Distance</div><div class="dv">${dist!=null?fmtDist(dist):'—'}</div></div>
+        <div class="dstat"><div class="dk">ETA to them</div><div class="dv">${etaMin!=null?etaMin+'<small> min</small>':'—'}</div></div>
+        <div class="dstat"><div class="dk">Battery</div><div class="dv">${f.battery!=null?f.battery+'<small> %</small>':'—'}</div></div>
+      </div>
+      <div class="dactions">
+        <button class="daction" id="aNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>Navigate</button>
+        <button class="daction" id="aFocus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>Focus</button>
+        <button class="daction" id="aCompare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9v6M19 9v6M8 12h8"/></svg>Compare</button>
+      </div>`;
+    detailBody.querySelector('#aFocus').onclick=()=>{ map.setView([f.lat,f.lon],16,{animate:true}); };
+    detailBody.querySelector('#aNav').onclick=()=>{ window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}`,'_blank'); };
+    detailBody.querySelector('#aCompare').onclick=()=>{ alert('Compare: pick a second person (coming in the next slice).'); };
+  }
+
+  // ---------- sheet drag ----------
+  const sheet=document.getElementById('sheet'), grip=document.getElementById('grip');
+  function openSheet(state){ sheet.classList.remove('half','full'); if(state!=='peek') sheet.classList.add(state); }
+  let dragY=null, startTf=0;
+  function curState(){ return sheet.classList.contains('full')?'full':sheet.classList.contains('half')?'half':'peek'; }
+  grip.addEventListener('pointerdown', e=>{ dragY=e.clientY; grip.setPointerCapture(e.pointerId); });
+  grip.addEventListener('pointermove', e=>{
+    if(dragY==null) return; const dy=e.clientY-dragY;
+    if(Math.abs(dy)<8) return;
+    if(dy<-30){ openSheet(curState()==='peek'?'half':'full'); dragY=e.clientY; }
+    else if(dy>30){ const s=curState(); openSheet(s==='full'?'half':'peek'); dragY=e.clientY; }
+  });
+  grip.addEventListener('pointerup', ()=>{ dragY=null; });
+  document.querySelector('.sheet-head').addEventListener('click', ()=>{ openSheet(curState()==='peek'?'half':'peek'); });
+
+  // ---------- FAB (sharing) ----------
+  let sharing=false, watch=null, lastSent=0;
+  const fab=document.getElementById('fab'), fabLabel=document.getElementById('fabLabel');
+  fab.addEventListener('click', ()=> sharing?stopShare():startShare());
+  function startShare(){
+    if(!myName){ location.href='/join.html'; return; }
+    if(!('geolocation' in navigator)){ alert('Location not available'); return; }
+    sharing=true; fab.classList.add('sharing'); fabLabel.textContent='Sharing';
+    watch=navigator.geolocation.watchPosition(pos=>{
+      const c=pos.coords, now=Date.now();
+      if(c.accuracy>40) return;
+      if(now-lastSent<800) return; lastSent=now;
+      let batt=null; if(navigator.getBattery){ /* async, best-effort below */ }
+      fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:myCircle?[myCircle]:[],
+        gspeed:(c.speed>=0)?c.speed:null, heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
+        battery: window._batt ?? null
+      })});
+    },()=>{},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+    if(navigator.getBattery){ navigator.getBattery().then(b=>{ window._batt=Math.round(b.level*100); b.addEventListener('levelchange',()=>window._batt=Math.round(b.level*100)); }); }
+  }
+  function stopShare(){
+    sharing=false; fab.classList.remove('sharing'); fabLabel.textContent='Share location';
+    if(watch!=null){ navigator.geolocation.clearWatch(watch); watch=null; }
+    fetch('/leave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId})});
+  }
+
+  document.getElementById('profileBtn').onclick=()=>{ location.href='/join.html'; };
+  document.getElementById('search').onclick=()=>{ alert('Destination search — coming in the next slice.'); };
+
+  // ---------- live connection ----------
+  function connect(){
+    fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{});
+    try{ const es=new EventSource('/stream'+circleQS); es.onmessage=e=>{try{handle(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{es.close();setInterval(()=>fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}),4000);}; }
+    catch(_){ setInterval(()=>fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}),4000); }
+  }
+  connect();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
