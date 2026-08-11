@@ -669,16 +669,26 @@
     if(!('geolocation' in navigator)){ alert('Location not available'); return; }
     sharing=true; fab.classList.add('sharing'); fabLabel.textContent='Sharing';
     tripPanel.classList.add('on');   // trip controls live inside sharing
+    let sentOnce=false;
     watch=navigator.geolocation.watchPosition(pos=>{
       const c=pos.coords, now=Date.now();
-      if(c.accuracy>40) return;
-      if(now-lastSent<800) return; lastSent=now;
+      // Prefer accurate fixes, but never stay invisible: once we've had a
+      // rough first fix, still send it (a rough dot beats no dot). Only
+      // skip a rough fix if we already have a good recent one.
+      if(c.accuracy>60 && sentOnce) return;
+      if(now-lastSent<800) return; lastSent=now; sentOnce=true;
       fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:myCircle?[myCircle]:[],
         gspeed:(c.speed>=0)?c.speed:null, heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
         battery: window._batt ?? null, status: localStorage.getItem('wm_status')||''
-      })});
-    },()=>{},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+      })}).catch(()=>{});
+    },err=>{
+      // don't fail silently — tell the person what to do
+      const msg = err.code===1 ? 'Location permission was blocked. Allow it in your browser settings, then tap Share again.'
+                : err.code===2 ? 'Can’t find your location right now. Try moving near a window or outside.'
+                : 'Location timed out. Tap Share to try again.';
+      countEl.textContent = msg;
+    },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
     if(navigator.getBattery){ navigator.getBattery().then(b=>{ window._batt=Math.round(b.level*100); b.addEventListener('levelchange',()=>window._batt=Math.round(b.level*100)); }); }
   }
   function stopShare(){
