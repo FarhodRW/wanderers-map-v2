@@ -17,7 +17,7 @@
     --ember:#C0603F; --ember-soft:rgba(192,96,63,.12);
     --live:#4C9A5A; --shadow:rgba(40,30,20,.14);
     --ink:#3B2A1C;                 /* footstep ink on light map */
-    --map-filter:saturate(.92) brightness(1.02);
+    --map-filter:saturate(.94) brightness(1.01);
     --scrim:rgba(255,255,255,.86);
   }
   :root[data-theme="dark"]{
@@ -26,7 +26,7 @@
     --ember:#D3714E; --ember-soft:rgba(211,113,78,.16);
     --live:#7FC08B; --shadow:rgba(0,0,0,.5);
     --ink:#E4D3B0;                 /* footstep ink on dark map */
-    --map-filter:saturate(.85) brightness(.62) contrast(1.05);
+    --map-filter:none;
     --scrim:rgba(20,18,16,.82);
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -214,6 +214,7 @@
     root.setAttribute('data-theme', next);
     localStorage.setItem('wm_theme', next);
     setThemeIcon(next);
+    if(typeof applyTiles === 'function') applyTiles();
   });
   function setThemeIcon(t){
     document.getElementById('themeIcon').innerHTML = t==='dark'
@@ -233,7 +234,20 @@
 
   // ---------- map ----------
   const map = L.map('map', { zoomControl:false, attributionControl:true }).setView([41.0, 71.67], 14);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap' }).addTo(map);
+
+  // Real light/dark basemaps (like Google Maps) — not a dimmed day map.
+  const TILES = {
+    light: { url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution:'&copy; OpenStreetMap' },
+    dark:  { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution:'&copy; OpenStreetMap &copy; CARTO' }
+  };
+  let tileLayer = null;
+  function applyTiles(){
+    const theme = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    if(tileLayer) map.removeLayer(tileLayer);
+    const t = TILES[theme];
+    tileLayer = L.tileLayer(t.url, { maxZoom:19, attribution:t.attribution, subdomains:'abcd' }).addTo(map);
+  }
+  applyTiles();
 
   const circleQS = myCircle ? ('?circles='+encodeURIComponent(myCircle)) : '';
 
