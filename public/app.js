@@ -64,7 +64,7 @@
 
   // ---------- map ----------
   const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
-  const TT_TILE=st=>`https://{s}.api.tomtom.com/map/1/tile/basic/${st}/{z}/{x}/{y}.png?key=${TT_KEY}&tileSize=512`;
+  const TT_TILE=st=>`https://{s}.api.tomtom.com/map/1/tile/basic/${st}/{z}/{x}/{y}.png?key=${TT_KEY}`;
   const TILES={
     light:{url:TT_TILE('main'),attribution:'&copy; TomTom',sub:'abcd'},
     dark:{url:TT_TILE('night'),attribution:'&copy; TomTom',sub:'abcd'}
@@ -73,7 +73,7 @@
   function tileLayerFor(theme,maxZoom){
     const t=TILES[theme==='dark'?'dark':'light'];
     return L.tileLayer(t.url,{maxZoom:maxZoom||19,attribution:t.attribution,
-      subdomains:t.sub,tileSize:512,zoomOffset:-1});
+      subdomains:t.sub});
   }
   let tileLayer=null;
   function applyTiles(){
