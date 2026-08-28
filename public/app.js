@@ -458,6 +458,7 @@
   let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
   const $=id=>document.getElementById(id);
   function getEmber(){ return getComputedStyle(root).getPropertyValue('--ember').trim()||'#E8562A'; }
+  function clockETA(mins){ const t=new Date(Date.now()+mins*60000); return t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
   const searchInput=$('search'), searchResults=$('searchResults'), routeSheet=$('routeSheet');
   const navPanel=$('navPanel'), freeBadge=$('freeBadge'), gpsChip=$('gpsChip');
 
@@ -535,6 +536,9 @@
   function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
 
   const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
+  // realistic average speeds for a mid-size Uzbek city (km/h) — accounts for
+  // lights, turns, congestion; free routing has no live traffic so we estimate.
+  const REAL_SPEED={driving:26,cycling:13,walking:4.7};
   function fetchAllModes(){
     const me=myPos();
     if(!me){
@@ -549,44 +553,46 @@
         done++;
         if(routes&&routes.length){
           anyOk=true;
-          const t=Math.round(routes[0].duration/60);
-          if(m==='driving')$('modeDriveTime').textContent=t+' min';
-          if(m==='cycling')$('modeBikeTime').textContent=t+' min';
-          if(m==='walking')$('modeWalkTime').textContent=t+' min';
+          // Use the road DISTANCE from routing (reliable), but compute TIME
+          // ourselves from realistic mode speeds — the free server's own
+          // durations are optimistic (no traffic) and often identical across modes.
+          routes.forEach(rt=>{ rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
+          setModeTime(m,routes[0]._realMin);
           routeData[m]=routes;
           if(m===curMode) renderRoutes();
         }
-        // if all three finished and none worked, use a straight-line fallback
         if(done===3 && !anyOk){ useStraightFallback(me); }
       });
     }
   }
+  function setModeTime(m,mins){
+    if(m==='driving')$('modeDriveTime').textContent=mins+' min';
+    if(m==='cycling')$('modeBikeTime').textContent=mins+' min';
+    if(m==='walking')$('modeWalkTime').textContent=mins+' min';
+  }
   function useStraightFallback(me){
-    const distM=metres(me[0],me[1],destination.lat,destination.lon);
-    const speeds={driving:40,cycling:15,walking:5}; // km/h estimates
+    const distM=metres(me[0],me[1],destination.lat,destination.lon)*1.3; // road factor
     for(const m of ['driving','cycling','walking']){
-      const mins=Math.max(1,Math.round(distM/1000/speeds[m]*60));
-      const fake=[{duration:mins*60,distance:distM,geometry:{coordinates:[[me[1],me[0]],[destination.lon,destination.lat]]},legs:[{steps:[]}],_straight:true}];
-      routeData[m]=fake;
-      if(m==='driving')$('modeDriveTime').textContent=mins+' min';
-      if(m==='cycling')$('modeBikeTime').textContent=mins+' min';
-      if(m==='walking')$('modeWalkTime').textContent=mins+' min';
+      const mins=Math.max(1,Math.round((distM/1000)/REAL_SPEED[m]*60));
+      const fake=[{duration:mins*60,distance:distM,_realMin:mins,geometry:{coordinates:[[me[1],me[0]],[destination.lon,destination.lat]]},legs:[{steps:[]}],_straight:true}];
+      routeData[m]=fake; setModeTime(m,mins);
     }
-    $('rmTag').textContent='Direct line (routing server busy)';
+    $('rmTag').textContent='Estimated (routing server busy)';
     renderRoutes();
   }
   async function fetchMode(mode,me){
-    // try two OSRM endpoints for reliability
+    // Use the profile-correct server FIRST so bike/walk differ from car.
+    const profile=mode==='driving'?'car':mode==='cycling'?'bike':'foot';
     const paths=[
-      `https://router.project-osrm.org/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`,
-      `https://routing.openstreetmap.de/routed-${mode==='driving'?'car':mode==='cycling'?'bike':'foot'}/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`
+      `https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`,
+      `https://router.project-osrm.org/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`
     ];
     for(const url of paths){
       try{
         const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
         const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
         const d=await r.json();
-        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,'ok via',url.split('/')[2]); return d.routes.slice(0,3); }
+        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,d.routes.length+' route(s) via',url.split('/')[2]); return d.routes.slice(0,3); }
       }catch(e){ console.log('[route]',mode,'failed',url.split('/')[2],e.message); }
     }
     return null;
@@ -610,12 +616,12 @@
     const routes=routeData[curMode]; if(!routes) return; chosenIdx=i;
     previewLines.forEach((l,j)=>{ if(l.setStyle&&j<routes.length) l.setStyle({color:j===i?getEmber():'#9A9A9A',weight:j===i?7:5,opacity:j===i?.95:.5}); });
     const rt=routes[i];
-    $('rmTime').textContent=Math.round(rt.duration/60)+' min';
+    $('rmTime').textContent=(rt._realMin||Math.round(rt.duration/60))+' min';
     $('rmDist').textContent='('+(rt.distance/1000).toFixed(1)+' km)';
     $('rmTag').textContent=i===0?'Fastest route':'Alternative route';
     const others=routes.map((r,j)=>({r,j})).filter(o=>o.j!==i);
     $('otherLabel').style.display=others.length?'block':'none';
-    $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
+    $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${o.r._realMin||Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
     $('otherRoutes').querySelectorAll('.other-route').forEach(el=>el.onclick=()=>selectRoute(+el.dataset.i));
   }
   document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>{
@@ -639,7 +645,7 @@
       if(navRouteLine)map.removeLayer(navRouteLine);
       navRouteLine=L.polyline(rt.geometry.coordinates.map(c=>[c[1],c[0]]),{color:getEmber(),weight:7,opacity:.9}).addTo(map);
       navSteps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[]; navStepIdx=0;
-      $('nsEta').textContent=Math.round(rt.duration/60)+'m';
+      $('nsEta').textContent=clockETA(rt._realMin||Math.round(rt.duration/60));
       $('nsDist').textContent=(rt.distance/1000).toFixed(1);
       updateTurn();
     }
