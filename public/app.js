@@ -70,10 +70,12 @@
     if(ev.ctrlKey){ ev.preventDefault();
       map.setZoom(map.getZoom()-ev.deltaY*0.01); }
   },{passive:false});
-  const TT_TILE=st=>`https://{s}.api.tomtom.com/map/1/tile/basic/${st}/{z}/{x}/{y}.png?key=${TT_KEY}`;
+  // Map picture: OpenStreetMap (light) + Carto (dark) — much better street/building
+  // coverage for Uzbekistan than TomTom's basic tiles. TomTom is still used for
+  // search + routing below; only the visible tiles come from OSM/Carto.
   const TILES={
-    light:{url:TT_TILE('main'),attribution:'&copy; TomTom',sub:'abcd'},
-    dark:{url:TT_TILE('night'),attribution:'&copy; TomTom',sub:'abcd'}
+    light:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attribution:'&copy; OpenStreetMap',sub:'abc'},
+    dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'}
   };
   // One place that builds a tile layer — every map in the app uses it.
   function tileLayerFor(theme,maxZoom){
