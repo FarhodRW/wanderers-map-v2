@@ -57,7 +57,7 @@
   // ---------- map ----------
   const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
   const TILES={
-    light:{url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'},
+    light:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attribution:'&copy; OpenStreetMap',sub:'abc'},
     dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'}
   };
   let tileLayer=null;
@@ -65,9 +65,12 @@
     const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
     if(tileLayer) map.removeLayer(tileLayer);
     const t=TILES[theme];
-    tileLayer=L.tileLayer(t.url,{maxZoom:20,attribution:t.attribution,subdomains:t.sub}).addTo(map);
+    tileLayer=L.tileLayer(t.url,{maxZoom:19,attribution:t.attribution,subdomains:t.sub}).addTo(map);
   }
   applyTiles();
+  // ensure the map sizes correctly once laid out
+  setTimeout(()=>map.invalidateSize(),200);
+  window.addEventListener('load',()=>map.invalidateSize());
 
   const circleQS = myCircle ? ('?circles='+encodeURIComponent(myCircle)) : '';
 
@@ -237,8 +240,20 @@
   }
   function startShare(){
     if(!myName){ showTab('profile'); toast('Set your name first'); return; }
-    if(!('geolocation'in navigator)){ toast('Location not available'); return; }
-    sharing=true; setSharingUI(true);
+    if(!('geolocation'in navigator)){ toast('Location not available on this device'); return; }
+    if(!window.isSecureContext){ toast('Location needs the https:// address'); return; }
+    // First, an explicit one-shot request — this reliably shows the
+    // permission prompt. Only if it succeeds do we start the live watch.
+    toast('Requesting location…');
+    navigator.geolocation.getCurrentPosition(()=>{
+      sharing=true; setSharingUI(true); beginWatch();
+    }, err=>{
+      if(err.code===1) toast('Location is blocked. Enable it for this site in browser settings.');
+      else if(err.code===2) toast('Can’t find your location. Try outside or near a window.');
+      else toast('Location timed out. Tap Share to try again.');
+    },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+  }
+  function beginWatch(){
     let sentOnce=false;
     watch=navigator.geolocation.watchPosition(pos=>{
       const c=pos.coords,now=Date.now();
@@ -249,8 +264,7 @@
         gspeed:(c.speed>=0)?c.speed:null,heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
         battery:window._batt??null,status:myStatus })}).catch(()=>{});
     },err=>{
-      toast(err.code===1?'Allow location, then tap Share again':'Can’t get your location');
-      sharing=false; setSharingUI(false);
+      if(err.code===1){ toast('Location permission lost'); sharing=false; setSharingUI(false); }
     },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
     if(navigator.getBattery)navigator.getBattery().then(b=>{window._batt=Math.round(b.level*100);b.addEventListener('levelchange',()=>window._batt=Math.round(b.level*100));});
   }
