@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>The Wanderers' Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root[data-theme="light"]{
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F4F2EE; --sheet:#FFFFFF;
+    --text:#141210; --text-2:#6B6156; --line:#EAE6DF;
+    --ember:#E8562A; --ember-soft:rgba(232,86,42,.12);
+    --live:#3FB950; --shadow:rgba(30,24,16,.16);
+    --ink:#2C2620; --map-filter:none;
+    --tabbar:#FFFFFF; --scrim:rgba(255,255,255,.9);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E0D0C; --surface:#1A1815; --surface-2:#222019; --sheet:#17150F;
+    --text:#F2ECE1; --text-2:#9C9182; --line:#2C2820;
+    --ember:#E8562A; --ember-soft:rgba(232,86,42,.18);
+    --live:#4FC760; --shadow:rgba(0,0,0,.55);
+    --ink:#E4D3B0; --map-filter:none;
+    --tabbar:#141210; --scrim:rgba(14,13,12,.88);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);}
+
+  /* ---- tab pages ---- */
+  .page{position:absolute;inset:0;display:none;flex-direction:column;}
+  .page.active{display:flex;}
+  #page-map.active{display:block;}
+
+  /* ============ MAP ============ */
+  #map{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--surface-2);}
+  .leaflet-tile-pane{filter:var(--map-filter);}
+  .leaflet-control-attribution{background:var(--scrim)!important;color:var(--text-2)!important;font-size:9px!important;}
+  .leaflet-control-attribution a{color:var(--ember)!important;}
+  .leaflet-control-zoom{display:none;}
+
+  /* ---- top bar (shared) ---- */
+  .topbar{position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:max(12px,env(safe-area-inset-top)) 14px 10px;display:flex;gap:10px;align-items:center;pointer-events:none;}
+  .tb-icon{pointer-events:auto;position:relative;width:46px;height:46px;flex:none;border-radius:50%;
+    border:none;background:var(--surface);box-shadow:0 3px 12px var(--shadow);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
+  .tb-icon svg{width:21px;height:21px;color:var(--text);}
+  .tb-icon img{width:100%;height:100%;object-fit:cover;}
+  .tb-badge{position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;border-radius:10px;
+    background:var(--ember);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg);}
+  .tb-search{pointer-events:auto;flex:1;display:flex;align-items:center;gap:10px;background:var(--surface);
+    border-radius:26px;padding:13px 16px;box-shadow:0 3px 12px var(--shadow);}
+  .tb-search svg{width:18px;height:18px;color:var(--text-2);flex:none;}
+  .tb-search input{border:none;background:none;outline:none;font:inherit;font-size:15px;color:var(--text);width:100%;}
+  .tb-search input::placeholder{color:var(--text-2);}
+
+  /* page header (Friends/Profile use this instead of search) */
+  .pagehead{position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:max(12px,env(safe-area-inset-top)) 14px 10px;display:flex;gap:10px;align-items:center;
+    background:var(--bg);}
+  .pagehead .title{flex:1;text-align:center;font-size:18px;font-weight:700;}
+
+  /* ---- share FAB ---- */
+  .share-fab{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:1000;
+    display:flex;align-items:center;gap:9px;background:var(--ember);color:#fff;border:none;cursor:pointer;
+    border-radius:30px;padding:15px 26px;font:inherit;font-weight:600;font-size:15px;box-shadow:0 8px 24px rgba(232,86,42,.45);}
+  .share-fab:active{transform:translateX(-50%) scale(.96);}
+  .share-fab.on{background:var(--surface);color:var(--text);box-shadow:0 8px 24px var(--shadow);}
+  .share-fab svg{width:18px;height:18px;}
+  .share-fab .pulse{width:9px;height:9px;border-radius:50%;background:var(--live);}
+  .share-fab.on .pulse{animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+  /* ---- bottom tab bar ---- */
+  .tabbar{position:absolute;left:0;right:0;bottom:0;z-index:1100;display:flex;
+    background:var(--tabbar);border-top:1px solid var(--line);
+    padding:8px 0 max(8px,env(safe-area-inset-bottom));}
+  .tab{flex:1;background:none;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--text-2);font:inherit;font-size:11px;font-weight:600;padding:4px 0;}
+  .tab svg{width:24px;height:24px;}
+  .tab.active{color:var(--ember);}
+  .tab .dash{width:16px;height:3px;border-radius:2px;background:transparent;margin-top:1px;}
+  .tab.active .dash{background:var(--ember);}
+
+  /* ---- map markers ---- */
+  .wm{background:none!important;border:none!important;}
+  .avatar-arrow{position:relative;width:56px;height:64px;transform:translate(-50%,-70%);}
+  .aa-arrow{position:absolute;top:-4px;left:50%;transform:translateX(-50%);transition:transform .5s ease;}
+  .aa-arrow svg{width:20px;height:20px;display:block;color:var(--ember);}
+  .aa-ring{position:absolute;left:50%;top:14px;width:46px;height:46px;transform:translateX(-50%);
+    border-radius:50%;overflow:hidden;border:3px solid #fff;background:var(--surface-2);box-shadow:0 3px 10px var(--shadow);}
+  .aa-ring img{width:100%;height:100%;object-fit:cover;}
+  .aa-ring .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ember);font-size:17px;}
+  .fp{background:none!important;border:none!important;}
+
+  /* ============ FRIENDS ============ */
+  #page-friends,#page-trips,#page-profile{background:var(--bg);overflow-y:auto;
+    padding-top:calc(max(12px,env(safe-area-inset-top)) + 60px);padding-bottom:calc(90px + env(safe-area-inset-bottom));}
+  .circle-box{margin:12px 16px 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;}
+  .circle-box .cb-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;}
+  .circle-box h3{font-size:15px;font-weight:700;margin-bottom:3px;}
+  .circle-box p{font-size:12.5px;color:var(--text-2);}
+  .code-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ember);color:var(--ember);
+    border-radius:20px;padding:8px 14px;font-weight:700;font-size:14px;letter-spacing:.04em;background:none;cursor:pointer;flex:none;}
+  .code-pill svg{width:15px;height:15px;}
+  .cb-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .cb-act{background:var(--surface-2);border:none;border-radius:12px;padding:14px 6px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--text);font:inherit;font-size:12px;font-weight:600;}
+  .cb-act svg{width:20px;height:20px;color:var(--text);}
+  .flist-head{display:flex;justify-content:space-between;align-items:center;padding:14px 20px 8px;}
+  .flist-head .lbl{font-size:14px;font-weight:600;}
+  .flist-head .cnt{font-size:12.5px;color:var(--text-2);display:flex;align-items:center;gap:6px;}
+  .flist-head .cnt .d{width:7px;height:7px;border-radius:50%;background:var(--live);}
+  .frow{display:flex;align-items:center;gap:13px;padding:12px 16px;cursor:pointer;}
+  .frow:active{background:var(--surface-2);}
+  .fav{position:relative;width:52px;height:52px;flex:none;border-radius:50%;overflow:hidden;background:var(--surface-2);}
+  .fav img{width:100%;height:100%;object-fit:cover;}
+  .fav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--text-2);font-size:19px;}
+  .fav .livedot{position:absolute;right:1px;top:1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);}
+  .fav .livedot.on{background:var(--live);}
+  .fav .livedot.off{background:#B9B0A2;}
+  .fmeta{flex:1;min-width:0;}
+  .fmeta .fn{font-weight:700;font-size:15px;}
+  .fmeta .fstat{font-size:13px;color:var(--ember);font-weight:600;margin-top:1px;}
+  .fmeta .fsub{font-size:12px;color:var(--text-2);}
+  .fnums{display:flex;gap:16px;flex:none;}
+  .fnum{text-align:center;}
+  .fnum b{display:block;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .fnum span{font-size:10px;color:var(--text-2);}
+  .empty{text-align:center;color:var(--text-2);padding:50px 30px;font-size:14px;line-height:1.6;}
+
+  /* ============ PROFILE ============ */
+  .prof-hero{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 20px 18px;}
+  .prof-av{position:relative;width:108px;height:108px;border-radius:50%;overflow:hidden;border:3px solid var(--surface);box-shadow:0 4px 14px var(--shadow);background:var(--surface-2);cursor:pointer;}
+  .prof-av img{width:100%;height:100%;object-fit:cover;}
+  .prof-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:40px;color:var(--text-2);}
+  .prof-av .edit{position:absolute;right:4px;bottom:4px;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;}
+  .prof-av .edit svg{width:14px;height:14px;color:var(--text-2);}
+  .prof-name{font-size:22px;font-weight:700;}
+  .prof-status{display:flex;align-items:center;gap:10px;width:calc(100% - 40px);margin:0 20px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .prof-status input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:14px;color:var(--text);}
+  .prof-status svg{width:16px;height:16px;color:var(--text-2);}
+  .share-toggle{display:flex;align-items:center;justify-content:space-between;margin:16px 20px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+  .share-toggle .st-l{display:flex;flex-direction:column;gap:2px;}
+  .share-toggle .st-l b{font-size:15px;display:flex;align-items:center;gap:7px;}
+  .share-toggle .st-l b .d{width:8px;height:8px;border-radius:50%;background:var(--live);}
+  .share-toggle .st-l span{font-size:12.5px;color:var(--text-2);}
+  .switch{width:52px;height:30px;border-radius:16px;background:var(--line);border:none;cursor:pointer;position:relative;transition:background .2s;flex:none;}
+  .switch.on{background:var(--ember);}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .2s;}
+  .switch.on::after{transform:translateX(22px);}
+  .sec-head{font-size:15px;font-weight:700;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;}
+  .sec-head .add{color:var(--ember);font-size:13px;font-weight:600;background:none;border:none;cursor:pointer;}
+  .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:4px 16px 10px;}
+  .stat-c{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 10px;}
+  .stat-c .k{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px;}
+  .stat-c .v{font-size:24px;font-weight:800;margin-top:6px;font-variant-numeric:tabular-nums;}
+  .stat-c .u{font-size:11px;color:var(--text-2);}
+  .setrow{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;}
+  .setrow:active{background:var(--surface-2);}
+  .setrow svg{width:19px;height:19px;color:var(--text-2);flex:none;}
+  .setrow .sl{flex:1;font-size:14.5px;font-weight:500;}
+  .setrow .sr{font-size:13px;color:var(--text-2);}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+</head>
+<body>
+
+  <!-- ===== MAP PAGE ===== -->
+  <div class="page active" id="page-map">
+    <div id="map"></div>
+    <div class="topbar">
+      <button class="tb-icon" id="msgBtn" aria-label="Messages">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
+        <span class="tb-badge" id="msgBadge" style="display:none">0</span>
+      </button>
+      <div class="tb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="search" placeholder="Search or set a destination" readonly></div>
+      <button class="tb-icon" id="profBtn" aria-label="Profile"><span id="profIni" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg" alt="" style="display:none;"></button>
+    </div>
+    <button class="share-fab" id="shareFab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+      <span class="pulse" style="display:none"></span><span id="shareLabel">Share location</span>
+    </button>
+  </div>
+
+  <!-- ===== FRIENDS PAGE ===== -->
+  <div class="page" id="page-friends">
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn2" aria-label="Messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title">My Circle</div>
+      <button class="tb-icon" id="profBtn2"><span id="profIni2" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg2" alt="" style="display:none;"></button>
+    </div>
+    <div class="circle-box">
+      <div class="cb-top">
+        <div><h3>Your private circle</h3><p>Share locations only with your people.</p></div>
+        <button class="code-pill" id="codePill">— <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+      <div class="cb-actions">
+        <button class="cb-act" id="createCircle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M18 8v6M15 11h6"/></svg>Create circle</button>
+        <button class="cb-act" id="joinCircle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 20v.01M17 20v.01"/></svg>Join with code</button>
+        <button class="cb-act" id="addFriend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M18 8v6M15 11h6"/></svg>Add friend</button>
+      </div>
+    </div>
+    <div class="flist-head"><span class="lbl">Friends in your circle</span><span class="cnt" id="onlineCount"><span class="d"></span>0 online</span></div>
+    <div id="friendList"></div>
+  </div>
+
+  <!-- ===== TRIPS PAGE (placeholder for phase 2) ===== -->
+  <div class="page" id="page-trips">
+    <div class="pagehead"><div style="width:46px"></div><div class="title">Trips</div><div style="width:46px"></div></div>
+    <div class="empty">Trip recording &amp; history — coming next.<br>The map &amp; friends come first.</div>
+  </div>
+
+  <!-- ===== PROFILE PAGE ===== -->
+  <div class="page" id="page-profile">
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title">Profile</div>
+      <div style="width:46px"></div>
+    </div>
+    <div class="prof-hero">
+      <button class="prof-av" id="profAv"><span class="ini" id="profAvIni">?</span><img id="profAvImg" alt="" style="display:none;"><span class="edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span></button>
+      <div class="prof-name" id="profName">Set your name</div>
+    </div>
+    <div class="prof-status"><input id="statusInput" placeholder="Add a status…" maxlength="40"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+    <div class="share-toggle">
+      <div class="st-l"><b id="stState"><span class="d"></span>Hidden</b><span id="stSub">You are not sharing your location.</span></div>
+      <button class="switch" id="shareSwitch" aria-label="Toggle sharing"></button>
+    </div>
+    <div class="sec-head">My Circle</div>
+    <div class="circle-box" style="margin-top:0">
+      <div class="cb-top"><div><h3>Private circle</h3><p id="circleDesc">Not in a circle yet.</p></div>
+        <button class="code-pill" id="codePill2">— <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="cb-actions"><button class="cb-act" id="createCircle2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M18 8v6M15 11h6"/></svg>Create</button>
+        <button class="cb-act" id="joinCircle2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>Join</button>
+        <button class="cb-act" id="leaveCircle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Leave</button></div>
+    </div>
+    <div class="sec-head">Settings</div>
+    <div class="setrow" id="themeRow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="sl">Theme</span><span class="sr" id="themeVal">Light</span></div>
+  </div>
+
+  <!-- ===== TAB BAR ===== -->
+  <div class="tabbar">
+    <button class="tab active" data-tab="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>Map<span class="dash"></span></button>
+    <button class="tab" data-tab="friends"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="8" r="2.5"/><path d="M17 14c2.2 0 4 1.8 4 4"/></svg>Friends<span class="dash"></span></button>
+    <button class="tab" data-tab="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Trips<span class="dash"></span></button>
+  </div>
+
+<script src="app.js"></script>
+</body>
+</html>
