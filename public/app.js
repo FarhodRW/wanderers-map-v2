@@ -123,7 +123,10 @@
       if(f.heading!=null){const a=p.marker.getElement()?.querySelector('.aa-arrow'); if(a)a.style.transform=`translateX(-50%) rotate(${f.heading}deg)`;}
     }
     for(const[id,p]of people){ if(!seen.has(id)){ map.removeLayer(p.marker); people.delete(id); } }
-    if(!centred && people.has(myId)){ const me=people.get(myId); map.setView([me.lat,me.lon],16,{animate:true}); centred=true; }
+    if(!centred && people.has(myId)){ const me=people.get(myId); map.setView([me.lat,me.lon],16,{animate:true}); centred=true;
+      // if the route sheet is open waiting for my location, fetch routes now
+      if(destination && routeSheet.classList.contains('on') && !routeData[curMode]) fetchAllModes();
+    }
     renderFriends();
     if(openCardId) renderFriendCard(openCardId);
   }
@@ -454,6 +457,7 @@
   let destination=null, destMarker=null, previewMap=null, previewLines=[], routeData={}, curMode='driving', chosenIdx=0;
   let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
   const $=id=>document.getElementById(id);
+  function getEmber(){ return getComputedStyle(root).getPropertyValue('--ember').trim()||'#E8562A'; }
   const searchInput=$('search'), searchResults=$('searchResults'), routeSheet=$('routeSheet');
   const navPanel=$('navPanel'), freeBadge=$('freeBadge'), gpsChip=$('gpsChip');
 
@@ -470,17 +474,35 @@
   $('searchCancel').onclick=()=>{ searchInput.value=''; searchInput.blur(); $('searchX').style.display='none'; searchResults.classList.remove('on'); document.body.classList.remove('searching'); };
   async function doSearch(q){
     searchResults.innerHTML=`<div class="sr-empty">Searching…</div>`; searchResults.classList.add('on');
+    const me=myPos();
     try{
-      const me=myPos();
-      const near=me?`&viewbox=${me[1]-0.4},${me[0]+0.4},${me[1]+0.4},${me[0]-0.4}&bounded=0`:'';
-      const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1${near}`;
-      const r=await fetch(url,{headers:{'Accept':'application/json'}});
-      const d=await r.json();
-      if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found</div>`; return; }
+      // Pass 1: strongly prefer nearby results (bounded viewbox around me)
+      let d=[];
+      if(me){
+        const r=0.6; // ~60km box
+        const vb=`&viewbox=${me[1]-r},${me[0]+r},${me[1]+r},${me[0]-r}&bounded=1`;
+        d=await nomFetch(q,vb,10);
+      }
+      // Pass 2: if too few local hits, widen to unbounded (still biased near me)
+      if(d.length<3){
+        const vb=me?`&viewbox=${me[1]-4},${me[0]+4},${me[1]+4},${me[0]-4}&bounded=0`:'';
+        const wide=await nomFetch(q,vb,10);
+        // merge, dedupe by place_id
+        const seen=new Set(d.map(x=>x.place_id));
+        wide.forEach(x=>{ if(!seen.has(x.place_id)){ d.push(x); seen.add(x.place_id); } });
+      }
+      if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found near you</div>`; return; }
+      // sort by distance from me (closest first) — this is the Google-like ranking
+      if(me){
+        d.forEach(x=>{ x._dist=metres(me[0],me[1],parseFloat(x.lat),parseFloat(x.lon)); });
+        d.sort((a,b)=>a._dist-b._dist);
+      }
+      d=d.slice(0,7);
       searchResults.innerHTML=d.map((x,i)=>{
         const name=x.display_name.split(',')[0];
         const rest=x.display_name.split(',').slice(1,3).join(',').trim();
-        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div><svg class="sr-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></div>`;
+        const dist=x._dist!=null?(x._dist<1000?Math.round(x._dist)+' m':(x._dist/1000).toFixed(1)+' km'):'';
+        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
       }).join('');
       searchResults.querySelectorAll('.sr-item').forEach(el=>el.onclick=()=>{
         const x=d[el.dataset.i];
@@ -488,6 +510,11 @@
         openRoutePreview(parseFloat(x.lat),parseFloat(x.lon),x.display_name.split(',')[0]);
       });
     }catch(e){ searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
+  }
+  async function nomFetch(q,vb,limit){
+    const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${limit}&addressdetails=1${vb||''}`;
+    const r=await fetch(url,{headers:{'Accept':'application/json'}});
+    return await r.json();
   }
 
   map.on('click',e=>{ if(navigating||freeRoaming) return; openRoutePreview(e.latlng.lat,e.latlng.lng,'Dropped pin'); });
@@ -510,10 +537,18 @@
   const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
   function fetchAllModes(){
     const me=myPos();
-    if(!me){ $('rmTag').textContent='Share your location first for routes'; return; }
+    if(!me){
+      $('rmTag').textContent='Turn on location sharing to get routes';
+      if(!sharing){ startShare(); toast('Turn on sharing to route from your location'); }
+      return;
+    }
+    $('rmTag').textContent='Finding routes…';
+    let anyOk=false, done=0;
     for(const m of ['driving','cycling','walking']){
       fetchMode(m,me).then(routes=>{
+        done++;
         if(routes&&routes.length){
+          anyOk=true;
           const t=Math.round(routes[0].duration/60);
           if(m==='driving')$('modeDriveTime').textContent=t+' min';
           if(m==='cycling')$('modeBikeTime').textContent=t+' min';
@@ -521,15 +556,40 @@
           routeData[m]=routes;
           if(m===curMode) renderRoutes();
         }
+        // if all three finished and none worked, use a straight-line fallback
+        if(done===3 && !anyOk){ useStraightFallback(me); }
       });
     }
   }
+  function useStraightFallback(me){
+    const distM=metres(me[0],me[1],destination.lat,destination.lon);
+    const speeds={driving:40,cycling:15,walking:5}; // km/h estimates
+    for(const m of ['driving','cycling','walking']){
+      const mins=Math.max(1,Math.round(distM/1000/speeds[m]*60));
+      const fake=[{duration:mins*60,distance:distM,geometry:{coordinates:[[me[1],me[0]],[destination.lon,destination.lat]]},legs:[{steps:[]}],_straight:true}];
+      routeData[m]=fake;
+      if(m==='driving')$('modeDriveTime').textContent=mins+' min';
+      if(m==='cycling')$('modeBikeTime').textContent=mins+' min';
+      if(m==='walking')$('modeWalkTime').textContent=mins+' min';
+    }
+    $('rmTag').textContent='Direct line (routing server busy)';
+    renderRoutes();
+  }
   async function fetchMode(mode,me){
-    try{
-      const url=`https://router.project-osrm.org/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-      const r=await fetch(url); const d=await r.json();
-      return (d.code==='Ok')?d.routes.slice(0,3):null;
-    }catch(_){ return null; }
+    // try two OSRM endpoints for reliability
+    const paths=[
+      `https://router.project-osrm.org/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`,
+      `https://routing.openstreetmap.de/routed-${mode==='driving'?'car':mode==='cycling'?'bike':'foot'}/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`
+    ];
+    for(const url of paths){
+      try{
+        const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
+        const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
+        const d=await r.json();
+        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,'ok via',url.split('/')[2]); return d.routes.slice(0,3); }
+      }catch(e){ console.log('[route]',mode,'failed',url.split('/')[2],e.message); }
+    }
+    return null;
   }
   function renderRoutes(){
     const routes=routeData[curMode]; if(!routes||!previewMap) return;
