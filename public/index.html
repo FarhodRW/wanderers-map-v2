@@ -166,6 +166,97 @@
   .setrow .sr{font-size:13px;color:var(--text-2);}
 
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+
+  /* ============ FRIEND DETAIL SHEET ============ */
+  .fsheet-scrim{position:absolute;inset:0;z-index:1900;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .25s;}
+  .fsheet-scrim.on{opacity:1;pointer-events:auto;}
+  .fsheet{position:absolute;left:0;right:0;bottom:0;z-index:2000;background:var(--sheet);
+    border-radius:26px 26px 0 0;box-shadow:0 -8px 30px var(--shadow);padding:0 20px calc(20px + env(safe-area-inset-bottom));
+    transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:90dvh;overflow-y:auto;}
+  .fsheet.on{transform:translateY(0);}
+  .fsheet-grip{width:38px;height:5px;border-radius:3px;background:var(--line);margin:10px auto 4px;}
+  .fsheet-close{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:50%;border:none;
+    background:var(--surface-2);cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;}
+  .fsheet-close svg{width:17px;height:17px;color:var(--text-2);}
+  .fsheet-hero{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0 18px;}
+  .fsheet-av{width:96px;height:96px;border-radius:50%;overflow:hidden;border:3px solid var(--ember);background:var(--surface-2);}
+  .fsheet-av img{width:100%;height:100%;object-fit:cover;}
+  .fsheet-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;color:var(--ember);}
+  .fsheet-name{font-size:24px;font-weight:800;}
+  .fsheet-status{font-size:14px;color:var(--ember);font-weight:600;}
+  .fsheet-live{font-size:13px;color:var(--text-2);}
+  .fsheet-live .lv{color:var(--ember);font-weight:600;}
+  .fsheet-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:var(--surface-2);border-radius:16px;padding:16px 8px;margin-bottom:14px;}
+  .fss{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;}
+  .fss svg{width:19px;height:19px;color:var(--text-2);}
+  .fss b{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;}
+  .fss span{font-size:10px;color:var(--text-2);line-height:1.3;}
+  .fsheet-path{background:var(--surface-2);border-radius:16px;padding:14px;margin-bottom:16px;}
+  .fsheet-path-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;}
+  .fsheet-path-head span:first-child{font-weight:600;}
+  .fsheet-path-head span:last-child{color:var(--text-2);}
+  .fsheet-path-map{height:90px;border-radius:10px;overflow:hidden;background:var(--surface);}
+  .fsheet-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .fsheet-act{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;border-radius:14px;
+    border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-size:12px;font-weight:600;color:var(--text);}
+  .fsheet-act svg{width:19px;height:19px;color:var(--ember);}
+  .fsheet-act.primary{background:var(--ember);color:#fff;border-color:var(--ember);}
+  .fsheet-act.primary svg{color:#fff;}
+  .fsheet-act:active{transform:scale(.97);}
+
+  /* ============ TRIPS ============ */
+  .trips-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:24px 30px 20px;}
+  .trips-hero-ill{font-size:52px;filter:grayscale(.1);}
+  .trips-hero h3{font-size:19px;font-weight:800;}
+  .trips-hero p{font-size:13.5px;color:var(--text-2);line-height:1.5;max-width:260px;}
+  .trip-start-btn{margin-top:12px;display:inline-flex;align-items:center;gap:9px;background:var(--ember);color:#fff;
+    border:none;border-radius:26px;padding:15px 30px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;box-shadow:0 8px 22px rgba(232,86,42,.4);}
+  .trip-start-btn svg{width:18px;height:18px;}
+  .trip-start-btn:active{transform:scale(.97);}
+  .trip-card{display:flex;align-items:center;gap:12px;margin:0 16px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;}
+  .trip-card:active{background:var(--surface-2);}
+  .trip-card-map{width:64px;height:64px;border-radius:10px;overflow:hidden;flex:none;background:var(--surface-2);}
+  .trip-card-info{flex:1;min-width:0;}
+  .trip-card-info .d{font-size:14px;font-weight:700;}
+  .trip-card-info .t{font-size:12px;color:var(--text-2);}
+  .trip-card-nums{display:flex;gap:14px;margin-top:6px;}
+  .trip-card-nums b{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .trip-card-nums span{font-size:10px;color:var(--text-2);display:block;}
+
+  /* live dial */
+  .trip-dial-wrap{display:flex;flex-direction:column;align-items:center;padding:20px 0 10px;position:relative;}
+  .trip-live-badge{display:inline-flex;align-items:center;gap:6px;background:var(--ember-soft);color:var(--ember);font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;margin-bottom:16px;}
+  .trip-live-badge .rdot{width:8px;height:8px;border-radius:50%;background:var(--ember);animation:pulse 1.3s infinite;}
+  .trip-dial{width:230px;height:230px;border-radius:50%;border:10px solid var(--surface-2);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;}
+  .trip-dial::before{content:"";position:absolute;inset:-10px;border-radius:50%;border:10px solid transparent;
+    border-top-color:var(--ember);border-right-color:var(--ember);transform:rotate(45deg);}
+  .trip-dial-num{font-size:64px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;}
+  .trip-dial-unit{font-size:16px;color:var(--text-2);font-weight:600;}
+  .trip-dial-cap{font-size:13px;color:var(--text-2);margin-top:8px;}
+  .trip-live-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:22px 16px;}
+  .tls{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;}
+  .tls .k{font-size:12px;color:var(--text-2);}
+  .tls .v{font-size:28px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .tls .u{font-size:11px;color:var(--text-2);}
+  .trip-end-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 16px;width:calc(100% - 32px);
+    background:var(--ember);color:#fff;border:none;border-radius:16px;padding:17px;font:inherit;font-weight:700;font-size:16px;cursor:pointer;}
+  .trip-end-btn .sq{width:13px;height:13px;background:#fff;border-radius:2px;}
+  .trip-end-btn:active{transform:scale(.98);}
+
+  /* summary */
+  #page-summary{background:var(--bg);}
+  .summary-map{height:200px;border-radius:16px;overflow:hidden;background:var(--surface-2);margin-bottom:14px;}
+  .summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .summary-cell{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px;}
+  .summary-cell .k{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;}
+  .summary-cell .v{font-size:24px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .summary-cell .v small{font-size:12px;font-weight:500;color:var(--text-2);}
+  .summary-btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;border-radius:14px;padding:15px;
+    font:inherit;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:10px;border:1px solid var(--ember);background:var(--surface);color:var(--ember);}
+  .summary-btn svg{width:17px;height:17px;}
+  .summary-btn.primary{background:var(--ember);color:#fff;border-color:var(--ember);}
+  .summary-btn:active{transform:scale(.99);}
 </style>
 </head>
 <body>
@@ -209,10 +300,51 @@
     <div id="friendList"></div>
   </div>
 
-  <!-- ===== TRIPS PAGE (placeholder for phase 2) ===== -->
+  <!-- ===== TRIPS PAGE ===== -->
   <div class="page" id="page-trips">
-    <div class="pagehead"><div style="width:46px"></div><div class="title">Trips</div><div style="width:46px"></div></div>
-    <div class="empty">Trip recording &amp; history — coming next.<br>The map &amp; friends come first.</div>
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title" id="tripsTitle">Trips</div>
+      <button class="tb-icon" id="profBtn3"><span id="profIni3" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg3" alt="" style="display:none;"></button>
+    </div>
+    <div id="tripsIdle">
+      <div class="trips-hero">
+        <div class="trips-hero-ill">🏔️</div>
+        <h3>Ready for a new adventure?</h3>
+        <p>Record your trip and keep memories of everywhere you go.</p>
+        <button class="trip-start-btn" id="tripStartBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start a trip</button>
+      </div>
+      <div class="sec-head" style="margin-top:8px">Past trips</div>
+      <div id="tripHistory"></div>
+    </div>
+    <div id="tripsLive" style="display:none;">
+      <div class="trip-dial-wrap">
+        <div class="trip-live-badge"><span class="rdot"></span>LIVE</div>
+        <div class="trip-dial"><div class="trip-dial-num" id="tripSpeed">0</div><div class="trip-dial-unit">km/h</div><div class="trip-dial-cap">Current speed</div></div>
+      </div>
+      <div class="trip-live-stats">
+        <div class="tls"><div class="k">Distance</div><div class="v" id="tripDist">0.00</div><div class="u">km</div></div>
+        <div class="tls"><div class="k">Time</div><div class="v" id="tripTime">0:00</div><div class="u">&nbsp;</div></div>
+        <div class="tls"><div class="k">Avg speed</div><div class="v" id="tripAvg">0</div><div class="u">km/h</div></div>
+        <div class="tls"><div class="k">Top speed</div><div class="v" id="tripTop">0</div><div class="u">km/h</div></div>
+      </div>
+      <button class="trip-end-btn" id="tripEndBtn"><span class="sq"></span>End trip</button>
+    </div>
+  </div>
+
+  <!-- ===== TRIP SUMMARY (mockup img 5) ===== -->
+  <div class="page" id="page-summary" style="z-index:1200;">
+    <div class="pagehead">
+      <button class="tb-icon" id="summaryBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+      <div class="title">Trip summary<div id="summaryDate" style="font-size:12px;font-weight:400;color:var(--text-2)"></div></div>
+      <div style="width:46px"></div>
+    </div>
+    <div style="overflow-y:auto;padding:12px 16px calc(30px + env(safe-area-inset-bottom));">
+      <div class="summary-map" id="summaryMap"></div>
+      <div class="summary-grid" id="summaryGrid"></div>
+      <button class="summary-btn primary" id="summaryReplay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Replay trip</button>
+      <button class="summary-btn" id="summaryShare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>Share with friends</button>
+    </div>
   </div>
 
   <!-- ===== PROFILE PAGE ===== -->
@@ -241,6 +373,36 @@
     </div>
     <div class="sec-head">Settings</div>
     <div class="setrow" id="themeRow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="sl">Theme</span><span class="sr" id="themeVal">Light</span></div>
+  </div>
+
+  <!-- ===== FRIEND DETAIL SHEET (mockup img 7) ===== -->
+  <div class="fsheet-scrim" id="fsheetScrim"></div>
+  <div class="fsheet" id="fsheet">
+    <div class="fsheet-grip"></div>
+    <button class="fsheet-close" id="fsheetClose" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+    <div class="fsheet-hero">
+      <div class="fsheet-av" id="fsheetAv"></div>
+      <div class="fsheet-name" id="fsheetName">Friend</div>
+      <div class="fsheet-status" id="fsheetStatus"></div>
+      <div class="fsheet-live" id="fsheetLive"><span id="fsheetMoving">Moving</span> · <span class="lv">Live</span></div>
+    </div>
+    <div class="fsheet-stats">
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg><b id="fssSpeed">0</b><span>km/h<br>Speed</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg><b id="fssDist">—</b><span>km<br>from me</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b id="fssEta">—</b><span>min<br>ETA</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="16" height="8" rx="2"/><path d="M20 11v2"/></svg><b id="fssBatt">—</b><span>%<br>Battery</span></div>
+    </div>
+    <div class="fsheet-path">
+      <div class="fsheet-path-head"><span>Recent path</span><span id="fsheetPathTime">Last 15 min</span></div>
+      <div class="fsheet-path-map" id="fsheetPathMap"></div>
+    </div>
+    <div class="fsheet-actions">
+      <button class="fsheet-act primary" id="fsheetNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>Navigate</button>
+      <button class="fsheet-act" id="fsheetMsg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>Message</button>
+      <button class="fsheet-act" id="fsheetFocus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>Focus</button>
+    </div>
   </div>
 
   <!-- ===== TAB BAR ===== -->
