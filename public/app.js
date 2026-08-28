@@ -56,18 +56,30 @@
   ['profBtn','profBtn2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
   ['msgBtn','msgBtn2','msgBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
 
+  // ---------- TomTom key (used by tiles, search and routing) ----------
+
+  // ---------- TomTom key (used by tiles, search and routing) ----------
+  // Client-side key. Restrict it by domain in the TomTom dashboard.
+  const TT_KEY='I2iVgAycefIcOeRT8fdsmI0UiIMvMDcS';
+
   // ---------- map ----------
   const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
+  const TT_TILE=st=>`https://{s}.api.tomtom.com/map/1/tile/basic/${st}/{z}/{x}/{y}.png?key=${TT_KEY}&tileSize=512`;
   const TILES={
-    light:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attribution:'&copy; OpenStreetMap',sub:'abc'},
-    dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'}
+    light:{url:TT_TILE('main'),attribution:'&copy; TomTom',sub:'abcd'},
+    dark:{url:TT_TILE('night'),attribution:'&copy; TomTom',sub:'abcd'}
   };
+  // One place that builds a tile layer — every map in the app uses it.
+  function tileLayerFor(theme,maxZoom){
+    const t=TILES[theme==='dark'?'dark':'light'];
+    return L.tileLayer(t.url,{maxZoom:maxZoom||19,attribution:t.attribution,
+      subdomains:t.sub,tileSize:512,zoomOffset:-1});
+  }
   let tileLayer=null;
   function applyTiles(){
     const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
     if(tileLayer) map.removeLayer(tileLayer);
-    const t=TILES[theme];
-    tileLayer=L.tileLayer(t.url,{maxZoom:19,attribution:t.attribution,subdomains:t.sub}).addTo(map);
+    tileLayer=tileLayerFor(theme,19).addTo(map);
   }
   applyTiles();
   mapReady=true;
@@ -232,7 +244,7 @@
     if(!pathMap){
       pathMap=L.map('fsheetPathMap',{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
       const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(pathMap);
+      tileLayerFor(theme,19).addTo(pathMap);
     }
     pathMap.invalidateSize();
     const p=people.get(openCardId); if(p) drawPath(p.data);
@@ -404,7 +416,7 @@
     if(!summaryMap){
       summaryMap=L.map('summaryMap',{zoomControl:false,attributionControl:false});
       const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(summaryMap);
+      tileLayerFor(theme,19).addTo(summaryMap);
     }
     summaryMap.invalidateSize();
     if(summaryLine)summaryLine.forEach(l=>summaryMap.removeLayer(l)); summaryLine=[];
@@ -444,7 +456,7 @@
         if(route.length>1){
           const mm=L.map('thmap-'+i,{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
           const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-          L.tileLayer(TILES[theme].url,{maxZoom:17,subdomains:TILES[theme].sub}).addTo(mm);
+          tileLayerFor(theme,17).addTo(mm);
           const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:2.5}).addTo(mm);
           setTimeout(()=>{mm.invalidateSize();mm.fitBounds(line.getBounds(),{padding:[6,6]});},100);
         }
@@ -453,7 +465,8 @@
   }
   loadHistory();
 
-  // ================= NAVIGATION (free: Nominatim + OSRM) =================
+  // ================= NAVIGATION (TomTom Search + Routing, traffic-aware) =====
+  // Client-side key. Restrict it by domain in the TomTom dashboard.
   let destination=null, destMarker=null, previewMap=null, previewLines=[], routeData={}, curMode='driving', chosenIdx=0;
   let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
   const $=id=>document.getElementById(id);
@@ -477,45 +490,42 @@
     searchResults.innerHTML=`<div class="sr-empty">Searching…</div>`; searchResults.classList.add('on');
     const me=myPos();
     try{
-      // Pass 1: strongly prefer nearby results (bounded viewbox around me)
-      let d=[];
-      if(me){
-        const r=0.6; // ~60km box
-        const vb=`&viewbox=${me[1]-r},${me[0]+r},${me[1]+r},${me[0]-r}&bounded=1`;
-        d=await nomFetch(q,vb,10);
-      }
-      // Pass 2: if too few local hits, widen to unbounded (still biased near me)
-      if(d.length<3){
-        const vb=me?`&viewbox=${me[1]-4},${me[0]+4},${me[1]+4},${me[0]-4}&bounded=0`:'';
-        const wide=await nomFetch(q,vb,10);
-        // merge, dedupe by place_id
-        const seen=new Set(d.map(x=>x.place_id));
-        wide.forEach(x=>{ if(!seen.has(x.place_id)){ d.push(x); seen.add(x.place_id); } });
+      // Pass 1: nearby-first (50 km around me). TomTom returns .dist already.
+      let d=await ttSearch(q, me?`&lat=${me[0]}&lon=${me[1]}&radius=50000`:'', 10);
+      // Pass 2: if too few local hits, widen (still biased toward me)
+      if(d.length<3 && me){
+        const wide=await ttSearch(q,`&lat=${me[0]}&lon=${me[1]}`,10);
+        const seen=new Set(d.map(x=>x.id));
+        wide.forEach(x=>{ if(!seen.has(x.id)){ d.push(x); seen.add(x.id); } });
       }
       if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found near you</div>`; return; }
-      // sort by distance from me (closest first) — this is the Google-like ranking
-      if(me){
-        d.forEach(x=>{ x._dist=metres(me[0],me[1],parseFloat(x.lat),parseFloat(x.lon)); });
-        d.sort((a,b)=>a._dist-b._dist);
-      }
+      if(me) d.forEach(x=>{ if(x._dist==null) x._dist=metres(me[0],me[1],x.lat,x.lon); });
+      d.sort((a,b)=>(a._dist==null?1e12:a._dist)-(b._dist==null?1e12:b._dist));
       d=d.slice(0,7);
       searchResults.innerHTML=d.map((x,i)=>{
-        const name=x.display_name.split(',')[0];
-        const rest=x.display_name.split(',').slice(1,3).join(',').trim();
         const dist=x._dist!=null?(x._dist<1000?Math.round(x._dist)+' m':(x._dist/1000).toFixed(1)+' km'):'';
-        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
+        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(x.name)}</b><span>${esc(x.rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
       }).join('');
       searchResults.querySelectorAll('.sr-item').forEach(el=>el.onclick=()=>{
         const x=d[el.dataset.i];
         document.body.classList.remove('searching'); searchResults.classList.remove('on');
-        openRoutePreview(parseFloat(x.lat),parseFloat(x.lon),x.display_name.split(',')[0]);
+        openRoutePreview(x.lat,x.lon,x.name);
       });
-    }catch(e){ searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
+    }catch(e){ console.log('[search] failed',e.message); searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
   }
-  async function nomFetch(q,vb,limit){
-    const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${limit}&addressdetails=1${vb||''}`;
-    const r=await fetch(url,{headers:{'Accept':'application/json'}});
-    return await r.json();
+  async function ttSearch(q,bias,limit){
+    const url=`https://api.tomtom.com/search/2/search/${encodeURIComponent(q)}.json?key=${TT_KEY}&limit=${limit}&typeahead=true&language=en-GB${bias||''}`;
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('search HTTP '+r.status);
+    const j=await r.json();
+    return (j.results||[]).map(x=>{
+      const a=x.address||{}, poi=x.poi||{};
+      const name=poi.name||a.streetName||a.municipality||a.freeformAddress||'Place';
+      let rest=a.freeformAddress||'';
+      if(rest===name) rest=[a.municipality,a.countrySubdivision].filter(Boolean).join(', ');
+      return { id:x.id, name:name, rest:rest, lat:x.position.lat, lon:x.position.lon,
+               _dist:(typeof x.dist==='number')?x.dist:null };
+    });
   }
 
   map.on('click',e=>{ if(navigating||freeRoaming) return; openRoutePreview(e.latlng.lat,e.latlng.lng,'Dropped pin'); });
@@ -525,7 +535,7 @@
     if(!previewMap){
       previewMap=L.map('routePreviewMap',{zoomControl:false,attributionControl:false});
       const th=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[th].url,{maxZoom:19,subdomains:TILES[th].sub}).addTo(previewMap);
+      tileLayerFor(th,19).addTo(previewMap);
     }
     setTimeout(()=>previewMap.invalidateSize(),120);
     routeData={}; curMode='driving';
@@ -535,7 +545,6 @@
   $('rhBack').onclick=closeRoutePreview;
   function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
 
-  const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
   // realistic average speeds for a mid-size Uzbek city (km/h) — accounts for
   // lights, turns, congestion; free routing has no live traffic so we estimate.
   const REAL_SPEED={driving:26,cycling:13,walking:4.7};
@@ -553,10 +562,9 @@
         done++;
         if(routes&&routes.length){
           anyOk=true;
-          // Use the road DISTANCE from routing (reliable), but compute TIME
-          // ourselves from realistic mode speeds — the free server's own
-          // durations are optimistic (no traffic) and often identical across modes.
-          routes.forEach(rt=>{ rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
+          // TomTom gives real traffic-aware times (_realMin set in adaptTT).
+          // REAL_SPEED is only a fallback if a time is somehow missing.
+          routes.forEach(rt=>{ if(!rt._realMin) rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
           setModeTime(m,routes[0]._realMin);
           routeData[m]=routes;
           if(m===curMode) renderRoutes();
@@ -580,22 +588,50 @@
     $('rmTag').textContent='Estimated (routing server busy)';
     renderRoutes();
   }
+  const TT_MODE={driving:'car',cycling:'bicycle',walking:'pedestrian'};
   async function fetchMode(mode,me){
-    // Use the profile-correct server FIRST so bike/walk differ from car.
-    const profile=mode==='driving'?'car':mode==='cycling'?'bike':'foot';
-    const paths=[
-      `https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`,
-      `https://router.project-osrm.org/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`
-    ];
-    for(const url of paths){
-      try{
-        const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
-        const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
-        const d=await r.json();
-        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,d.routes.length+' route(s) via',url.split('/')[2]); return d.routes.slice(0,3); }
-      }catch(e){ console.log('[route]',mode,'failed',url.split('/')[2],e.message); }
-    }
-    return null;
+    const tm=TT_MODE[mode]||'car';
+    const url=`https://api.tomtom.com/routing/1/calculateRoute/${me[0]},${me[1]}:${destination.lat},${destination.lon}/json`
+      +`?key=${TT_KEY}&maxAlternatives=2&travelMode=${tm}&instructionsType=text&language=en-GB`
+      +(tm==='car'?'&traffic=true&routeType=fastest':'');
+    try{
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),9000);
+      const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
+      if(!r.ok){ console.log('[route]',mode,'tomtom HTTP',r.status); return null; }
+      const d=await r.json();
+      if(!d.routes||!d.routes.length){ console.log('[route]',mode,'no routes'); return null; }
+      console.log('[route]',mode,d.routes.length+' route(s) via tomtom');
+      return d.routes.slice(0,3).map(adaptTT);
+    }catch(e){ console.log('[route]',mode,'failed tomtom',e.message); return null; }
+  }
+  // Convert a TomTom route into the shape the rest of the app already uses
+  // (OSRM-like: geometry.coordinates [lon,lat], distance, duration, legs[0].steps).
+  function adaptTT(rt){
+    const pts=[];
+    (rt.legs||[]).forEach(lg=>(lg.points||[]).forEach(p=>pts.push([p.longitude,p.latitude])));
+    const sum=rt.summary||{};
+    const secs=sum.travelTimeInSeconds||0;
+    const instr=(rt.guidance&&rt.guidance.instructions)||[];
+    const steps=instr.map((ins,i)=>{
+      const nx=instr[i+1];
+      const off=ins.routeOffsetInMeters||0;
+      const dist=nx?Math.max(0,(nx.routeOffsetInMeters||0)-off):Math.max(0,(sum.lengthInMeters||0)-off);
+      let road=ins.street||'';
+      if(!road && ins.roadNumbers && ins.roadNumbers.length) road=ins.roadNumbers[0];
+      return { distance:dist, name:road, _msg:ins.message||'', maneuver:ttManeuver(ins) };
+    });
+    return { distance:sum.lengthInMeters||0, duration:secs,
+             _realMin:Math.max(1,Math.round(secs/60)),
+             _delay:sum.trafficDelayInSeconds||0,
+             geometry:{coordinates:pts}, legs:[{steps:steps}] };
+  }
+  function ttManeuver(ins){
+    const m=((ins.maneuver||'')+' '+(ins.instructionType||'')).toUpperCase();
+    if(m.indexOf('ARRIV')>=0) return {type:'arrive'};
+    if(m.indexOf('DEPART')>=0) return {type:'depart'};
+    if(m.indexOf('ROUNDABOUT')>=0) return {type:'roundabout'};
+    const mod=m.indexOf('LEFT')>=0?'left':m.indexOf('RIGHT')>=0?'right':'straight';
+    return {type:'turn',modifier:mod};
   }
   function renderRoutes(){
     const routes=routeData[curMode]; if(!routes||!previewMap) return;
@@ -618,7 +654,8 @@
     const rt=routes[i];
     $('rmTime').textContent=(rt._realMin||Math.round(rt.duration/60))+' min';
     $('rmDist').textContent='('+(rt.distance/1000).toFixed(1)+' km)';
-    $('rmTag').textContent=i===0?'Fastest route':'Alternative route';
+    const delayMin=rt._delay?Math.round(rt._delay/60):0;
+    $('rmTag').textContent=(i===0?'Fastest route':'Alternative route')+(delayMin>=1?` · +${delayMin} min traffic`:'');
     const others=routes.map((r,j)=>({r,j})).filter(o=>o.j!==i);
     $('otherLabel').style.display=others.length?'block':'none';
     $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${o.r._realMin||Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
@@ -627,7 +664,7 @@
   document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>{
     curMode=b.dataset.mode;
     document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('sel',x===b));
-    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;renderRoutes();}});
+    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;setModeTime(curMode,r[0]._realMin);renderRoutes();}});
   });
   $('raStart').onclick=()=>startNavigation();
   $('raPin').onclick=()=>toast('Saved places — coming soon');
@@ -656,9 +693,9 @@
     if(!navSteps.length) return;
     const step=navSteps[navStepIdx]; if(!step) return; const man=step.maneuver||{};
     $('ntDist').innerHTML=(step.distance>=1000?(step.distance/1000).toFixed(1)+'<span> km</span>':Math.round(step.distance)+'<span> m</span>');
-    $('ntText').textContent=turnText(man,step.name);
+    $('ntText').textContent=step._msg||turnText(man,step.name);
     const nxt=navSteps[navStepIdx+1];
-    $('ntThen').innerHTML=nxt?('Then · '+turnText(nxt.maneuver||{},nxt.name)):'';
+    $('ntThen').innerHTML=nxt?('Then · '+(nxt._msg||turnText(nxt.maneuver||{},nxt.name))):'';
     $('ntIcon').innerHTML=turnIcon(man);
   }
   function turnText(man,road){
@@ -721,7 +758,7 @@
   function showSteps(rt){
     const steps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[];
     if(!steps.length){ toast('No turn steps available'); return; }
-    alert('Directions:\n\n'+steps.map(s=>'• '+turnText(s.maneuver||{},s.name)+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
+    alert('Directions:\n\n'+steps.map(s=>'• '+(s._msg||turnText(s.maneuver||{},s.name))+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
   }
 
   $('recenterBtn').onclick=()=>{ const me=myPos(); if(me){ followMode=true; map.setView(me,navigating||freeRoaming?17:16,{animate:true}); } };
