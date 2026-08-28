@@ -4,6 +4,7 @@
   // ---------- theme ----------
   const root=document.documentElement;
   let mapReady=false;   // becomes true once the map + tiles exist
+  let followMode=false; // map follows me while navigating / free-roaming
   const savedTheme=localStorage.getItem('wm_theme'); if(savedTheme) root.setAttribute('data-theme',savedTheme);
   function applyThemeUI(){
     const t=root.getAttribute('data-theme');
@@ -128,6 +129,7 @@
   }
 
   // ---------- glide + footsteps ----------
+  let _followCounter=0;
   function animate(){
     for(const[id,p]of people){
       p.lat+=(p.tLat-p.lat)*0.14; p.lon+=(p.tLon-p.lon)*0.14;
@@ -137,6 +139,11 @@
       p.stepAcc+=moved;
       if(p.stepAcc>(driving?32:9)){ p.stepAcc=0; p.side*=-1; dropStep(p.lat,p.lon,p.data.heading||0,p.side,driving); }
       p._plat=p.lat; p._plon=p.lon;
+    }
+    // follow mode: keep the map centered on me while navigating / free-roaming
+    if(followMode && (++_followCounter%8===0)){
+      const me=people.get(myId);
+      if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.6});
     }
     requestAnimationFrame(animate);
   }
@@ -322,22 +329,27 @@
   const fmtDur=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return (h>0?h+':'+String(m).padStart(2,'0'):m)+':'+String(ss).padStart(2,'0');};
   const fmtDurHMS=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');};
 
-  document.getElementById('tripStartBtn').onclick=startTrip;
+  document.getElementById('tripStartBtn').onclick=()=>{ if(window._startFreeTrip) window._startFreeTrip(); else startTrip(); };
   document.getElementById('tripEndBtn').onclick=endTrip;
   ['profBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
   ['msgBtn4'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
   document.getElementById('summaryBack').onclick=()=>showTab('trips');
 
   async function startTrip(){
-    if(!sharing){ startShare(); }  // a trip records on top of sharing
     try{
-      await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
+      // a trip records on top of sharing — turn sharing on if it's off,
+      // but don't let it block the trip if permission is still pending
+      if(!sharing){ try{ startShare(); }catch(_){} }
+      const r=await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
+      if(!r.ok) throw new Error('server '+r.status);
+      const d=await r.json();
+      if(!d.ok) throw new Error(d.error||'start failed');
       tripActive=true;
       document.getElementById('tripsIdle').style.display='none';
       document.getElementById('tripsLive').style.display='block';
       document.getElementById('tripsTitle').textContent='Recording trip';
       tripTimer=setInterval(pollTrip,1500); pollTrip();
-    }catch(_){ toast('Could not start trip'); }
+    }catch(e){ toast('Could not start trip: '+e.message); }
   }
   async function pollTrip(){
     try{
@@ -437,6 +449,220 @@
     }catch(_){}
   }
   loadHistory();
+
+  // ================= NAVIGATION (free: Nominatim + OSRM) =================
+  let destination=null, destMarker=null, previewMap=null, previewLines=[], routeData={}, curMode='driving', chosenIdx=0;
+  let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
+  const $=id=>document.getElementById(id);
+  const searchInput=$('search'), searchResults=$('searchResults'), routeSheet=$('routeSheet');
+  const navPanel=$('navPanel'), freeBadge=$('freeBadge'), gpsChip=$('gpsChip');
+
+  let searchTimer=null;
+  searchInput.addEventListener('focus',()=>document.body.classList.add('searching'));
+  searchInput.addEventListener('input',()=>{
+    const q=searchInput.value.trim();
+    $('searchX').style.display=q?'block':'none';
+    clearTimeout(searchTimer);
+    if(q.length<2){ searchResults.classList.remove('on'); return; }
+    searchTimer=setTimeout(()=>doSearch(q),380);
+  });
+  $('searchX').onclick=()=>{ searchInput.value=''; $('searchX').style.display='none'; searchResults.classList.remove('on'); };
+  $('searchCancel').onclick=()=>{ searchInput.value=''; searchInput.blur(); $('searchX').style.display='none'; searchResults.classList.remove('on'); document.body.classList.remove('searching'); };
+  async function doSearch(q){
+    searchResults.innerHTML=`<div class="sr-empty">Searching…</div>`; searchResults.classList.add('on');
+    try{
+      const me=myPos();
+      const near=me?`&viewbox=${me[1]-0.4},${me[0]+0.4},${me[1]+0.4},${me[0]-0.4}&bounded=0`:'';
+      const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1${near}`;
+      const r=await fetch(url,{headers:{'Accept':'application/json'}});
+      const d=await r.json();
+      if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found</div>`; return; }
+      searchResults.innerHTML=d.map((x,i)=>{
+        const name=x.display_name.split(',')[0];
+        const rest=x.display_name.split(',').slice(1,3).join(',').trim();
+        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div><svg class="sr-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></div>`;
+      }).join('');
+      searchResults.querySelectorAll('.sr-item').forEach(el=>el.onclick=()=>{
+        const x=d[el.dataset.i];
+        document.body.classList.remove('searching'); searchResults.classList.remove('on');
+        openRoutePreview(parseFloat(x.lat),parseFloat(x.lon),x.display_name.split(',')[0]);
+      });
+    }catch(e){ searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
+  }
+
+  map.on('click',e=>{ if(navigating||freeRoaming) return; openRoutePreview(e.latlng.lat,e.latlng.lng,'Dropped pin'); });
+
+  function openRoutePreview(lat,lon,name){
+    destination={lat,lon,name}; $('rhDest').textContent=name; routeSheet.classList.add('on');
+    if(!previewMap){
+      previewMap=L.map('routePreviewMap',{zoomControl:false,attributionControl:false});
+      const th=root.getAttribute('data-theme')==='dark'?'dark':'light';
+      L.tileLayer(TILES[th].url,{maxZoom:19,subdomains:TILES[th].sub}).addTo(previewMap);
+    }
+    setTimeout(()=>previewMap.invalidateSize(),120);
+    routeData={}; curMode='driving';
+    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('sel',b.dataset.mode==='driving'));
+    fetchAllModes();
+  }
+  $('rhBack').onclick=closeRoutePreview;
+  function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
+
+  const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
+  function fetchAllModes(){
+    const me=myPos();
+    if(!me){ $('rmTag').textContent='Share your location first for routes'; return; }
+    for(const m of ['driving','cycling','walking']){
+      fetchMode(m,me).then(routes=>{
+        if(routes&&routes.length){
+          const t=Math.round(routes[0].duration/60);
+          if(m==='driving')$('modeDriveTime').textContent=t+' min';
+          if(m==='cycling')$('modeBikeTime').textContent=t+' min';
+          if(m==='walking')$('modeWalkTime').textContent=t+' min';
+          routeData[m]=routes;
+          if(m===curMode) renderRoutes();
+        }
+      });
+    }
+  }
+  async function fetchMode(mode,me){
+    try{
+      const url=`https://router.project-osrm.org/route/v1/${OSRM[mode]}/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+      const r=await fetch(url); const d=await r.json();
+      return (d.code==='Ok')?d.routes.slice(0,3):null;
+    }catch(_){ return null; }
+  }
+  function renderRoutes(){
+    const routes=routeData[curMode]; if(!routes||!previewMap) return;
+    chosenIdx=0;
+    previewLines.forEach(l=>previewMap.removeLayer(l)); previewLines=[];
+    routes.forEach((rt,i)=>{
+      const coords=rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+      const line=L.polyline(coords,{color:i===0?getEmber():'#9A9A9A',weight:i===0?7:5,opacity:i===0?.95:.5}).addTo(previewMap);
+      line.on('click',()=>selectRoute(i)); previewLines.push(line);
+    });
+    const me=myPos();
+    previewLines.push(L.marker([destination.lat,destination.lon],{icon:L.divIcon({className:'dest-pin',iconSize:[30,30],html:`<svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" fill="${getEmber()}" stroke="white" stroke-width="1.5"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg>`})}).addTo(previewMap));
+    if(me) previewLines.push(L.circleMarker(me,{radius:8,color:'#fff',weight:3,fillColor:getEmber(),fillOpacity:1}).addTo(previewMap));
+    previewMap.fitBounds(L.latLngBounds(routes[0].geometry.coordinates.map(c=>[c[1],c[0]])),{padding:[50,50]});
+    selectRoute(0);
+  }
+  function selectRoute(i){
+    const routes=routeData[curMode]; if(!routes) return; chosenIdx=i;
+    previewLines.forEach((l,j)=>{ if(l.setStyle&&j<routes.length) l.setStyle({color:j===i?getEmber():'#9A9A9A',weight:j===i?7:5,opacity:j===i?.95:.5}); });
+    const rt=routes[i];
+    $('rmTime').textContent=Math.round(rt.duration/60)+' min';
+    $('rmDist').textContent='('+(rt.distance/1000).toFixed(1)+' km)';
+    $('rmTag').textContent=i===0?'Fastest route':'Alternative route';
+    const others=routes.map((r,j)=>({r,j})).filter(o=>o.j!==i);
+    $('otherLabel').style.display=others.length?'block':'none';
+    $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
+    $('otherRoutes').querySelectorAll('.other-route').forEach(el=>el.onclick=()=>selectRoute(+el.dataset.i));
+  }
+  document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>{
+    curMode=b.dataset.mode;
+    document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('sel',x===b));
+    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;renderRoutes();}});
+  });
+  $('raStart').onclick=()=>startNavigation();
+  $('raPin').onclick=()=>toast('Saved places — coming soon');
+  $('raSteps').onclick=()=>{ const routes=routeData[curMode]; if(routes&&routes[chosenIdx]) showSteps(routes[chosenIdx]); };
+
+  function startNavigation(){
+    if(!sharing) startShare();
+    const routes=routeData[curMode]; const rt=routes&&routes[chosenIdx];
+    navigating=true; followMode=true;
+    document.body.classList.add('navigating');
+    routeSheet.classList.remove('on'); navPanel.classList.add('on');
+    $('navTurn').style.display=rt?'block':'none';
+    $('nsEtaLabel').textContent='ETA'; $('nsDistLabel').textContent='Distance';
+    if(rt){
+      if(navRouteLine)map.removeLayer(navRouteLine);
+      navRouteLine=L.polyline(rt.geometry.coordinates.map(c=>[c[1],c[0]]),{color:getEmber(),weight:7,opacity:.9}).addTo(map);
+      navSteps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[]; navStepIdx=0;
+      $('nsEta').textContent=Math.round(rt.duration/60)+'m';
+      $('nsDist').textContent=(rt.distance/1000).toFixed(1);
+      updateTurn();
+    }
+    startTripRecord();
+    const me=myPos(); if(me) map.setView(me,17,{animate:true});
+  }
+  function updateTurn(){
+    if(!navSteps.length) return;
+    const step=navSteps[navStepIdx]; if(!step) return; const man=step.maneuver||{};
+    $('ntDist').innerHTML=(step.distance>=1000?(step.distance/1000).toFixed(1)+'<span> km</span>':Math.round(step.distance)+'<span> m</span>');
+    $('ntText').textContent=turnText(man,step.name);
+    const nxt=navSteps[navStepIdx+1];
+    $('ntThen').innerHTML=nxt?('Then · '+turnText(nxt.maneuver||{},nxt.name)):'';
+    $('ntIcon').innerHTML=turnIcon(man);
+  }
+  function turnText(man,road){
+    const t=man.type||'', mod=man.modifier||'';
+    if(t==='arrive')return 'Arrive at destination';
+    if(t==='depart')return 'Head out'+(road?' on '+road:'');
+    const dir=mod.includes('left')?'left':mod.includes('right')?'right':'straight';
+    if(t==='roundabout'||t==='rotary')return 'Take the roundabout'+(road?' to '+road:'');
+    if(dir==='straight')return 'Continue'+(road?' on '+road:'');
+    return 'Turn '+dir+(road?' onto '+road:'');
+  }
+  function turnIcon(man){
+    const mod=(man.modifier||'');
+    if((man.type||'')==='arrive')return '<path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/>';
+    if(mod.includes('right'))return '<path d="M9 18V9a3 3 0 0 1 3-3h6M15 3l3 3-3 3"/>';
+    if(mod.includes('left'))return '<path d="M15 18V9a3 3 0 0 0-3-3H6M9 3 6 6l3 3"/>';
+    return '<path d="M12 20V5M6 11l6-6 6 6"/>';
+  }
+  $('navEnd').onclick=stopNavigation;
+  $('ntVoice').onclick=()=>toast('Voice guidance — coming soon');
+
+  $('freeTripBtn').onclick=startFreeRoam;
+  window._startFreeTrip=()=>{ showTab('map'); startFreeRoam(); };
+  function startFreeRoam(){
+    if(!sharing) startShare();
+    freeRoaming=true; followMode=true;
+    document.body.classList.add('freeroam');
+    routeSheet.classList.remove('on');
+    freeBadge.classList.add('on'); gpsChip.classList.add('on'); navPanel.classList.add('on');
+    $('navTurn').style.display='none';
+    $('nsEtaLabel').textContent='Time'; $('nsEta').textContent='0:00';
+    $('nsDistLabel').textContent='Distance'; $('nsDist').textContent='0.0';
+    startTripRecord();
+    const me=myPos(); if(me) map.setView(me,17,{animate:true});
+  }
+
+  let navTimer=null;
+  async function startTripRecord(){
+    try{ await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})}); tripActive=true; }catch(_){}
+    navTimer=setInterval(updateNavStats,1000); updateNavStats();
+  }
+  async function updateNavStats(){
+    const me=people.get(myId);
+    $('nsSpeed').textContent=Math.round((me&&me.data.speed)||0);
+    try{
+      const r=await fetch('/trip/live?id='+encodeURIComponent(myId),{cache:'no-store'}); const d=await r.json();
+      if(d.active&&freeRoaming){ $('nsEta').textContent=fmtDur(d.durationSec); $('nsDist').textContent=(d.distanceM/1000).toFixed(1); }
+    }catch(_){}
+  }
+  async function stopNavigation(){
+    clearInterval(navTimer);
+    navigating=false; freeRoaming=false; followMode=false;
+    document.body.classList.remove('navigating','freeroam');
+    navPanel.classList.remove('on'); freeBadge.classList.remove('on'); gpsChip.classList.remove('on');
+    if(navRouteLine){map.removeLayer(navRouteLine);navRouteLine=null;}
+    if(destMarker){map.removeLayer(destMarker);destMarker=null;}
+    destination=null;
+    if(tripActive){ try{ const r=await fetch('/trip/end',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})}); const d=await r.json(); tripActive=false; loadHistory(); if(d.trip) showSummary(d.trip); }catch(_){} }
+  }
+  function showSteps(rt){
+    const steps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[];
+    if(!steps.length){ toast('No turn steps available'); return; }
+    alert('Directions:\n\n'+steps.map(s=>'• '+turnText(s.maneuver||{},s.name)+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
+  }
+
+  $('recenterBtn').onclick=()=>{ const me=myPos(); if(me){ followMode=true; map.setView(me,navigating||freeRoaming?17:16,{animate:true}); } };
+  $('layersBtn').onclick=()=>{ const next=root.getAttribute('data-theme')==='dark'?'light':'dark'; root.setAttribute('data-theme',next); localStorage.setItem('wm_theme',next); applyThemeUI(); };
+  map.on('dragstart',()=>{ if(navigating||freeRoaming) followMode=false; });
+  window._followTick=()=>{ if(followMode){ const me=people.get(myId); if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.5}); } };
+
   function poll(){ fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}); }
   function connect(){
     poll();
