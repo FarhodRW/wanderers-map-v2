@@ -28,8 +28,8 @@
   // reflect identity into the various avatar/name slots
   function paintIdentity(){
     // top-right profile buttons
-    ['profImg','profImg2'].forEach(id=>{const e=document.getElementById(id); if(!e)return; if(myPhoto){e.src=myPhoto;e.style.display='block';}else e.style.display='none';});
-    ['profIni','profIni2'].forEach(id=>{const e=document.getElementById(id); if(!e)return; e.style.display=myPhoto?'none':'block'; e.textContent=initials(myName);});
+    ['profImg','profImg2','profImg3'].forEach(id=>{const e=document.getElementById(id); if(!e)return; if(myPhoto){e.src=myPhoto;e.style.display='block';}else e.style.display='none';});
+    ['profIni','profIni2','profIni3'].forEach(id=>{const e=document.getElementById(id); if(!e)return; e.style.display=myPhoto?'none':'block'; e.textContent=initials(myName);});
     // profile page hero
     const pImg=document.getElementById('profAvImg'),pIni=document.getElementById('profAvIni');
     if(myPhoto){pImg.src=myPhoto;pImg.style.display='block';pIni.style.display='none';}else{pImg.style.display='none';pIni.style.display='flex';pIni.textContent=initials(myName);}
@@ -44,7 +44,7 @@
   paintIdentity(); applyThemeUI();
 
   // ---------- tabs ----------
-  const pages={map:document.getElementById('page-map'),friends:document.getElementById('page-friends'),trips:document.getElementById('page-trips'),profile:document.getElementById('page-profile')};
+  const pages={map:document.getElementById('page-map'),friends:document.getElementById('page-friends'),trips:document.getElementById('page-trips'),profile:document.getElementById('page-profile'),summary:document.getElementById('page-summary')};
   function showTab(name){
     for(const k in pages) pages[k].classList.toggle('active', k===name);
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
@@ -183,26 +183,64 @@
   }
   function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
 
-  // ---------- friend card (tap on map) — minimal for phase 1 ----------
-  let openCardId=null;
-  function openFriendCard(id){ openCardId=id; renderFriendCard(id); }
+  // ---------- friend detail sheet (mockup img 7) ----------
+  let openCardId=null, pathMap=null, pathLayer=null;
+  const fsheet=document.getElementById('fsheet'), fsheetScrim=document.getElementById('fsheetScrim');
+  function openFriendCard(id){
+    if(id===myId) return;           // tapping yourself doesn't open a card
+    openCardId=id; renderFriendCard(id);
+    fsheet.classList.add('on'); fsheetScrim.classList.add('on');
+    setTimeout(initPathMap,320);
+  }
+  function closeFriendCard(){ openCardId=null; fsheet.classList.remove('on'); fsheetScrim.classList.remove('on'); }
+  document.getElementById('fsheetClose').onclick=closeFriendCard;
+  fsheetScrim.onclick=closeFriendCard;
+
+  function avBig(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
+
   function renderFriendCard(id){
-    const p=people.get(id); if(!p) return; const f=p.data;
+    const p=people.get(id); if(!p){ closeFriendCard(); return; } const f=p.data;
     const mp=myPos(); const dist=mp?metres(mp[0],mp[1],f.lat,f.lon):null;
-    // phase-1: simple popup; full sheet comes with the design build
+    const moving=(f.speed||0)>3;
     const eta=(dist!=null)?Math.max(1,Math.round(dist/((Math.max(f.speed,4.5))*1000/60))):null;
-    L.popup({closeButton:true,autoPan:true})
-      .setLatLng([p.lat,p.lon])
-      .setContent(`<div style="font-family:Inter,sans-serif;min-width:150px">
-        <b style="font-size:15px">${esc(f.name)}</b>${f.status?`<div style="color:#E8562A;font-size:12px;font-weight:600">${esc(f.status)}</div>`:''}
-        <div style="display:flex;gap:12px;margin-top:8px;font-size:12px">
-          <div><b style="font-size:15px">${Math.round(f.speed||0)}</b><br>km/h</div>
-          <div><b style="font-size:15px">${dist!=null?fmtDist(dist):'—'}</b><br>away</div>
-          <div><b style="font-size:15px">${eta!=null?eta+'m':'—'}</b><br>ETA</div>
-          <div><b style="font-size:15px">${f.battery!=null?f.battery+'%':'—'}</b><br>batt</div>
-        </div></div>`)
-      .openOn(map);
-    openCardId=null; // popup is one-shot
+    document.getElementById('fsheetAv').innerHTML=avBig(id,f.name);
+    document.getElementById('fsheetName').textContent=f.name;
+    document.getElementById('fsheetStatus').textContent=f.status||'';
+    document.getElementById('fsheetMoving').textContent=moving?'Moving':'Stopped';
+    document.getElementById('fssSpeed').textContent=moving?Math.round(f.speed):'0';
+    document.getElementById('fssDist').textContent=dist!=null?(dist<1000?Math.round(dist):(dist/1000).toFixed(1)):'—';
+    document.getElementById('fssEta').textContent=eta!=null?eta:'—';
+    document.getElementById('fssBatt').textContent=f.battery!=null?f.battery:'—';
+    // wire actions (rebind each open, closure over current f)
+    document.getElementById('fsheetNav').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}`,'_blank');
+    document.getElementById('fsheetFocus').onclick=()=>{ map.setView([p.lat,p.lon],17,{animate:true}); closeFriendCard(); };
+    document.getElementById('fsheetMsg').onclick=()=>alert('Messaging — coming in a later phase.');
+    drawPath(f);
+  }
+  function initPathMap(){
+    if(!openCardId) return;
+    if(!pathMap){
+      pathMap=L.map('fsheetPathMap',{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
+      const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
+      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(pathMap);
+    }
+    pathMap.invalidateSize();
+    const p=people.get(openCardId); if(p) drawPath(p.data);
+  }
+  function drawPath(f){
+    if(!pathMap) return;
+    if(pathLayer){ pathLayer.forEach(l=>pathMap.removeLayer(l)); }
+    pathLayer=[];
+    const trail=(f.trail||[]).map(t=>[t[0],t[1]]);
+    if(trail.length>1){
+      const line=L.polyline(trail,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:3,opacity:.5,dashArray:'2 7'}).addTo(pathMap);
+      pathLayer.push(line);
+      pathMap.fitBounds(line.getBounds(),{padding:[16,16],maxZoom:16});
+    } else {
+      pathMap.setView([f.lat,f.lon],15);
+    }
+    const dot=L.circleMarker([f.lat,f.lon],{radius:6,color:'#fff',weight:2,fillColor:getComputedStyle(root).getPropertyValue('--ember').trim(),fillOpacity:1}).addTo(pathMap);
+    pathLayer.push(dot);
   }
 
   // ---------- circles ----------
@@ -279,7 +317,126 @@
   shareSwitch.onclick=()=>sharing?stopShare():startShare();
   setSharingUI(false);
 
-  // ---------- live connection ----------
+  // ---------- trips ----------
+  let tripActive=false, tripTimer=null, summaryMap=null, summaryLine=null;
+  const fmtDur=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return (h>0?h+':'+String(m).padStart(2,'0'):m)+':'+String(ss).padStart(2,'0');};
+  const fmtDurHMS=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');};
+
+  document.getElementById('tripStartBtn').onclick=startTrip;
+  document.getElementById('tripEndBtn').onclick=endTrip;
+  ['profBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
+  ['msgBtn4'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
+  document.getElementById('summaryBack').onclick=()=>showTab('trips');
+
+  async function startTrip(){
+    if(!sharing){ startShare(); }  // a trip records on top of sharing
+    try{
+      await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
+      tripActive=true;
+      document.getElementById('tripsIdle').style.display='none';
+      document.getElementById('tripsLive').style.display='block';
+      document.getElementById('tripsTitle').textContent='Recording trip';
+      tripTimer=setInterval(pollTrip,1500); pollTrip();
+    }catch(_){ toast('Could not start trip'); }
+  }
+  async function pollTrip(){
+    try{
+      const r=await fetch('/trip/live?id='+encodeURIComponent(myId),{cache:'no-store'});
+      const d=await r.json(); if(!d.active) return;
+      const me=people.get(myId);
+      document.getElementById('tripSpeed').textContent=Math.round((me&&me.data.speed)||0);
+      document.getElementById('tripDist').textContent=(d.distanceM/1000).toFixed(2);
+      document.getElementById('tripTime').textContent=fmtDur(d.durationSec);
+      document.getElementById('tripAvg').textContent=Math.round(d.avgKmh);
+      document.getElementById('tripTop').textContent=Math.round(d.topKmh);
+    }catch(_){}
+  }
+  async function endTrip(){
+    clearInterval(tripTimer);
+    try{
+      const r=await fetch('/trip/end',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
+      const d=await r.json();
+      tripActive=false;
+      document.getElementById('tripsLive').style.display='none';
+      document.getElementById('tripsIdle').style.display='block';
+      document.getElementById('tripsTitle').textContent='Trips';
+      loadHistory();
+      if(d.trip) showSummary(d.trip);
+    }catch(_){ toast('Could not end trip'); }
+  }
+
+  function showSummary(t){
+    showTab('summary');
+    const dt=new Date(t.startedAt);
+    document.getElementById('summaryDate').textContent=dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})+' · '+dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    const cell=(icon,k,v)=>`<div class="summary-cell"><div class="k">${icon} ${k}</div><div class="v">${v}</div></div>`;
+    document.getElementById('summaryGrid').innerHTML=
+      cell('📍','Distance',`${(t.distanceM/1000).toFixed(2)}<small> km</small>`)+
+      cell('⏱','Total time',fmtDurHMS(t.durationSec))+
+      cell('⚡','Top speed',`${Math.round(t.topKmh)}<small> km/h</small>`)+
+      cell('📊','Avg speed',`${Math.round(t.avgKmh)}<small> km/h</small>`)+
+      cell('🐢','Lowest moving',`${Math.round(t.lowKmh)}<small> km/h</small>`)+
+      cell('▶','Moving time',fmtDurHMS(t.movingSec));
+    setTimeout(()=>drawSummaryMap(t),300);
+    document.getElementById('summaryShare').onclick=()=>{
+      const txt=`My trip: ${(t.distanceM/1000).toFixed(1)}km, top ${Math.round(t.topKmh)}km/h, ${fmtDur(t.durationSec)} — on The Wanderers' Map`;
+      if(navigator.share)navigator.share({text:txt}).catch(()=>{}); else{navigator.clipboard&&navigator.clipboard.writeText(txt);toast('Copied');}
+    };
+    document.getElementById('summaryReplay').onclick=()=>toast('Replay — coming soon');
+  }
+  function drawSummaryMap(t){
+    const route=(t.route||[]).map(p=>[p[0],p[1]]);
+    if(!summaryMap){
+      summaryMap=L.map('summaryMap',{zoomControl:false,attributionControl:false});
+      const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
+      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(summaryMap);
+    }
+    summaryMap.invalidateSize();
+    if(summaryLine)summaryLine.forEach(l=>summaryMap.removeLayer(l)); summaryLine=[];
+    if(route.length>1){
+      const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:4}).addTo(summaryMap);
+      summaryLine.push(line);
+      summaryLine.push(L.circleMarker(route[0],{radius:7,color:'#fff',weight:2,fillColor:'#3FB950',fillOpacity:1}).addTo(summaryMap));
+      summaryLine.push(L.circleMarker(route[route.length-1],{radius:7,color:'#fff',weight:2,fillColor:getComputedStyle(root).getPropertyValue('--ember').trim(),fillOpacity:1}).addTo(summaryMap));
+      summaryMap.fitBounds(line.getBounds(),{padding:[24,24]});
+    } else { summaryMap.setView(route[0]||[41,71.67],14); }
+  }
+
+  async function loadHistory(){
+    try{
+      const r=await fetch('/trip/list?id='+encodeURIComponent(myId),{cache:'no-store'});
+      const d=await r.json(); const box=document.getElementById('tripHistory');
+      if(!d.trips||!d.trips.length){ box.innerHTML=`<div class="empty" style="padding:20px">No trips yet. Start one above!</div>`; return; }
+      box.innerHTML=d.trips.map((t,i)=>{
+        const dt=new Date(t.startedAt);
+        return `<div class="trip-card" data-i="${i}">
+          <div class="trip-card-map" id="thmap-${i}"></div>
+          <div class="trip-card-info">
+            <div class="d">${dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</div>
+            <div class="t">${dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</div>
+            <div class="trip-card-nums">
+              <div><b>${(t.distanceM/1000).toFixed(1)}</b><span>km</span></div>
+              <div><b>${fmtDur(t.durationSec)}</b><span>time</span></div>
+              <div><b>${Math.round(t.topKmh)}</b><span>top</span></div>
+            </div>
+          </div></div>`;
+      }).join('');
+      // mini maps + click
+      d.trips.forEach((t,i)=>{
+        const card=box.querySelector(`[data-i="${i}"]`);
+        if(card) card.onclick=()=>showSummary(t);
+        const route=(t.route||[]).map(p=>[p[0],p[1]]);
+        if(route.length>1){
+          const mm=L.map('thmap-'+i,{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
+          const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
+          L.tileLayer(TILES[theme].url,{maxZoom:17,subdomains:TILES[theme].sub}).addTo(mm);
+          const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:2.5}).addTo(mm);
+          setTimeout(()=>{mm.invalidateSize();mm.fitBounds(line.getBounds(),{padding:[6,6]});},100);
+        }
+      });
+    }catch(_){}
+  }
+  loadHistory();
   function poll(){ fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}); }
   function connect(){
     poll();
