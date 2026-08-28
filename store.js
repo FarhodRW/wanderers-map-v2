@@ -6,6 +6,7 @@
 
 let trips = null;       // trips collection
 let profiles = null;    // profiles collection
+let messages = null;    // messages collection
 let ready = false;
 
 async function init(mongoUrl) {
@@ -17,13 +18,17 @@ async function init(mongoUrl) {
     const db = client.db('wanderers');
     trips = db.collection('trips');
     profiles = db.collection('profiles');
+    messages = db.collection('messages');
     await trips.createIndex({ ownerId: 1, startedAt: -1 });
     await profiles.createIndex({ ownerId: 1 }, { unique: true });
+    // pair = the two ids sorted and joined, so both directions share one thread
+    await messages.createIndex({ pair: 1, ts: 1 });
+    await messages.createIndex({ to: 1, read: 1 });
     ready = true;
     console.log('  storage: connected to MongoDB — trips & profiles are permanent ✓');
   } catch (e) {
     console.error('  storage: MongoDB connection failed —', e.message);
-    trips = null; profiles = null; ready = false;
+    trips = null; profiles = null; messages = null; ready = false;
   }
 }
 
@@ -74,4 +79,68 @@ async function getProfiles(ownerIds) {
   return out;
 }
 
-module.exports = { init, saveTrip, listTrips, getTrip, deleteTrip, saveProfile, getProfiles };
+// ---- messages ----
+// A "pair" key makes both directions (A→B and B→A) land in one thread.
+function pairKey(a, b) { return [String(a), String(b)].sort().join('__'); }
+
+// In-memory fallback so chat still works with no Mongo (lost on restart).
+const memMsgs = [];
+
+async function saveMessage(from, to, text) {
+  const doc = {
+    pair: pairKey(from, to),
+    from: String(from), to: String(to),
+    text: String(text || '').slice(0, 2000),
+    ts: Date.now(), read: false
+  };
+  if (!ready || !messages) { doc._id = 'mem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6); memMsgs.push(doc); return doc; }
+  const res = await messages.insertOne(doc);
+  doc._id = res.insertedId;
+  return doc;
+}
+
+// Full conversation between two people, oldest first.
+async function getThread(a, b, limit = 500) {
+  const key = pairKey(a, b);
+  if (!ready || !messages) return memMsgs.filter(m => m.pair === key).slice(-limit);
+  return messages.find({ pair: key }).sort({ ts: 1 }).limit(limit).toArray();
+}
+
+// One row per conversation for `me`: the other person, last message, unread count.
+async function getOverview(me) {
+  me = String(me);
+  let rows;
+  if (!ready || !messages) {
+    rows = memMsgs.filter(m => m.from === me || m.to === me);
+  } else {
+    rows = await messages.find({ $or: [{ from: me }, { to: me }] }).sort({ ts: 1 }).toArray();
+  }
+  const threads = new Map();
+  for (const m of rows) {
+    const other = m.from === me ? m.to : m.from;
+    let t = threads.get(other);
+    if (!t) { t = { with: other, lastText: '', lastTs: 0, lastFrom: '', unread: 0 }; threads.set(other, t); }
+    if (m.ts >= t.lastTs) { t.lastText = m.text; t.lastTs = m.ts; t.lastFrom = m.from; }
+    if (m.to === me && !m.read) t.unread++;
+  }
+  return [...threads.values()].sort((x, y) => y.lastTs - x.lastTs);
+}
+
+// Total unread across all threads (for the top-left badge).
+async function unreadCount(me) {
+  me = String(me);
+  if (!ready || !messages) return memMsgs.filter(m => m.to === me && !m.read).length;
+  return messages.countDocuments({ to: me, read: false });
+}
+
+// Mark everything `from`→`me` as read (call when the thread is opened).
+async function markRead(me, from) {
+  me = String(me); from = String(from);
+  if (!ready || !messages) { memMsgs.forEach(m => { if (m.to === me && m.from === from) m.read = true; }); return; }
+  await messages.updateMany({ to: me, from, read: false }, { $set: { read: true } });
+}
+
+module.exports = {
+  init, saveTrip, listTrips, getTrip, deleteTrip, saveProfile, getProfiles,
+  saveMessage, getThread, getOverview, unreadCount, markRead
+};
