@@ -167,6 +167,108 @@
 
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
 
+  /* ============ NAVIGATION ============ */
+  .search-cancel{display:none;background:none;border:none;color:var(--ember);font:inherit;font-weight:600;font-size:15px;cursor:pointer;padding:0 4px;flex:none;}
+  body.searching .tb-icon{display:none;}
+  body.searching .search-cancel{display:block;}
+  body.searching .tb-search{box-shadow:0 3px 12px var(--shadow);}
+
+  .search-results{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 60px);left:14px;right:14px;z-index:1200;
+    background:var(--surface);border-radius:16px;box-shadow:0 8px 28px var(--shadow);overflow:hidden;display:none;max-height:60dvh;overflow-y:auto;}
+  .search-results.on{display:block;}
+  .sr-item{display:flex;align-items:center;gap:13px;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .sr-item:last-child{border-bottom:none;}
+  .sr-item:active{background:var(--surface-2);}
+  .sr-pin{width:20px;height:20px;color:var(--ember);flex:none;}
+  .sr-item .t{flex:1;min-width:0;}
+  .sr-item .t b{font-size:15px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .sr-item .t span{font-size:12.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;}
+  .sr-item .sr-go{width:16px;height:16px;color:var(--text-2);flex:none;transform:rotate(45deg);}
+  .sr-empty{padding:20px 16px;color:var(--text-2);font-size:13px;text-align:center;}
+
+  .map-fab{position:absolute;right:16px;z-index:1000;width:44px;height:44px;border-radius:50%;border:none;
+    background:var(--surface);box-shadow:0 4px 14px var(--shadow);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .map-fab svg{width:20px;height:20px;color:var(--text);}
+  .map-fab.layers{bottom:calc(200px + env(safe-area-inset-bottom));}
+  .map-fab.recenter{bottom:calc(150px + env(safe-area-inset-bottom));}
+  .map-fab.recenter svg{color:var(--ember);}
+
+  /* route preview sheet */
+  .route-sheet{position:absolute;top:0;left:0;right:0;bottom:0;z-index:1250;background:var(--bg);display:none;flex-direction:column;}
+  .route-sheet.on{display:flex;}
+  .route-header{display:flex;align-items:center;gap:10px;padding:max(12px,env(safe-area-inset-top)) 14px 12px;background:var(--surface);}
+  .rh-back{width:40px;height:40px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+  .rh-back svg{width:22px;height:22px;color:var(--text);}
+  .rh-trip{flex:1;background:var(--surface-2);border-radius:12px;padding:10px 14px;}
+  .rh-row{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;}
+  .rh-dot{width:11px;height:11px;border-radius:50%;background:var(--ember);flex:none;}
+  .rh-line{width:1px;height:14px;background:var(--line);margin:2px 0 2px 5px;border-left:1px dashed var(--text-2);}
+  .rh-swap{width:40px;height:40px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+  .rh-swap svg{width:20px;height:20px;color:var(--text-2);}
+  .mode-row{display:flex;gap:10px;padding:12px 14px;background:var(--surface);border-bottom:1px solid var(--line);}
+  .mode-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border-radius:20px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--text-2);}
+  .mode-btn svg{width:18px;height:18px;}
+  .mode-btn.sel{border-color:var(--ember);color:var(--ember);background:var(--ember-soft);}
+  .route-body{flex:1;overflow-y:auto;background:var(--map-preview,var(--surface-2));}
+  #routePreviewMap{height:42vh;width:100%;background:var(--surface-2);}
+  .route-main{display:flex;align-items:baseline;gap:10px;padding:16px 18px 4px;background:var(--bg);}
+  .rm-time b{font-size:30px;font-weight:800;color:var(--ember);font-variant-numeric:tabular-nums;}
+  .rm-time span{font-size:15px;color:var(--text-2);margin-left:4px;}
+  .rm-tag{font-size:14px;color:var(--text-2);padding:0 18px 12px;background:var(--bg);}
+  .route-actions{display:flex;gap:10px;padding:0 18px 16px;background:var(--bg);}
+  .ra-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:13px;border-radius:24px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-weight:600;font-size:14px;color:var(--text);}
+  .ra-btn svg{width:17px;height:17px;}
+  .ra-btn.primary{flex:1.4;background:var(--ember);color:#fff;border-color:var(--ember);}
+  .ra-btn:active{transform:scale(.97);}
+  .other-routes-label{font-size:15px;font-weight:700;padding:8px 18px;background:var(--bg);}
+  .other-routes{display:flex;gap:10px;padding:0 18px 14px;background:var(--bg);flex-wrap:wrap;}
+  .other-route{flex:1;min-width:130px;border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;background:var(--surface);}
+  .other-route:active{background:var(--surface-2);}
+  .other-route b{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .other-route span{font-size:13px;color:var(--text-2);margin-left:5px;}
+  .free-trip-card{display:flex;align-items:center;gap:12px;margin:6px 14px 20px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:16px;}
+  .ftc-icon{width:44px;height:44px;border-radius:50%;background:var(--ember-soft);display:flex;align-items:center;justify-content:center;flex:none;}
+  .ftc-icon svg{width:24px;height:24px;}
+  .ftc-text{flex:1;min-width:0;}
+  .ftc-text b{font-size:14px;font-weight:700;display:block;}
+  .ftc-text span{font-size:12.5px;color:var(--text-2);}
+  .ftc-btn{background:var(--ember);color:#fff;border:none;border-radius:22px;padding:12px 20px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;flex:none;}
+
+  /* free trip badge + gps chip */
+  .free-badge{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 4px);left:50%;transform:translateX(-50%);z-index:1000;
+    display:none;align-items:center;gap:10px;background:var(--surface);border-radius:14px;box-shadow:0 4px 14px var(--shadow);padding:10px 16px;}
+  .free-badge.on{display:flex;}
+  .free-badge .fb-dot{width:9px;height:9px;border-radius:50%;background:var(--ember);animation:pulse 1.4s infinite;}
+  .free-badge b{font-size:14px;font-weight:700;display:block;}
+  .free-badge span{font-size:12px;color:var(--text-2);}
+  .gps-chip{position:absolute;bottom:calc(200px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:1000;
+    display:none;align-items:center;gap:6px;background:var(--surface);border-radius:20px;box-shadow:0 3px 12px var(--shadow);padding:8px 14px;font-size:12.5px;font-weight:600;}
+  .gps-chip.on{display:flex;}
+
+  /* nav / recording bottom panel */
+  .nav-panel{position:absolute;left:0;right:0;bottom:0;z-index:1250;background:var(--sheet);border-radius:20px 20px 0 0;
+    box-shadow:0 -8px 28px var(--shadow);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:none;}
+  .nav-panel.on{display:block;}
+  .nav-turn{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:10px;}
+  .nt-main{display:flex;align-items:center;gap:14px;}
+  .nt-main>div{flex:1;}
+  .nt-main b{font-size:22px;font-weight:800;}
+  .nt-main b span{font-size:14px;font-weight:500;color:var(--text-2);}
+  .nt-main>div span{font-size:14px;color:var(--text);display:block;}
+  .nt-voice{width:44px;height:44px;border-radius:50%;border:none;background:var(--surface-2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;color:var(--text-2);}
+  .nt-then{font-size:13px;color:var(--text-2);margin-top:8px;padding-left:48px;}
+  .nav-stats{display:flex;justify-content:space-around;padding:8px 0 12px;}
+  .ns{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .ns b{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ember);}
+  .ns:nth-child(2) b,.ns:nth-child(3) b{color:var(--text);}
+  .ns span{font-size:11px;color:var(--text-2);}
+  .nav-end{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:var(--ember);color:#fff;border:none;border-radius:14px;padding:15px;font:inherit;font-weight:700;font-size:16px;cursor:pointer;}
+  .nav-end:active{transform:scale(.98);}
+  body.navigating .tabbar,body.navigating .topbar,body.navigating .share-fab{display:none;}
+  body.freeroam .topbar,body.freeroam .share-fab{display:none;}
+
+  .dest-pin{background:none!important;border:none!important;}
+
   /* ============ FRIEND DETAIL SHEET ============ */
   .fsheet-scrim{position:absolute;inset:0;z-index:1900;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .25s;}
   .fsheet-scrim.on{opacity:1;pointer-events:auto;}
@@ -264,18 +366,81 @@
   <!-- ===== MAP PAGE ===== -->
   <div class="page active" id="page-map">
     <div id="map"></div>
-    <div class="topbar">
+    <div class="topbar" id="topbar">
       <button class="tb-icon" id="msgBtn" aria-label="Messages">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
         <span class="tb-badge" id="msgBadge" style="display:none">0</span>
       </button>
-      <div class="tb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="search" placeholder="Search or set a destination" readonly></div>
+      <div class="tb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="search" placeholder="Search or set a destination"><button id="searchX" style="display:none;background:none;border:none;cursor:pointer;padding:2px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--text-2)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></button></div>
       <button class="tb-icon" id="profBtn" aria-label="Profile"><span id="profIni" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg" alt="" style="display:none;"></button>
+      <button class="search-cancel" id="searchCancel">Cancel</button>
     </div>
+
+    <div class="search-results" id="searchResults"></div>
+
+    <button class="map-fab layers" id="layersBtn" aria-label="Map layers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5"/></svg></button>
+    <button class="map-fab recenter" id="recenterBtn" aria-label="Recenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg></button>
+
     <button class="share-fab" id="shareFab">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
       <span class="pulse" style="display:none"></span><span id="shareLabel">Share location</span>
     </button>
+
+    <!-- ROUTE PREVIEW (screen 1) -->
+    <div class="route-sheet" id="routeSheet">
+      <div class="route-header">
+        <button class="rh-back" id="rhBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="rh-trip">
+          <div class="rh-row"><span class="rh-dot"></span>Your location</div>
+          <div class="rh-line"></div>
+          <div class="rh-row"><svg viewBox="0 0 24 24" width="15" height="15" fill="var(--ember)"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/></svg><span id="rhDest">Destination</span></div>
+        </div>
+        <button class="rh-swap" id="rhSwap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3"/></svg></button>
+      </div>
+      <div class="mode-row" id="modeRow">
+        <button class="mode-btn sel" data-mode="driving"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13M5 13h14v4H5zM7 17v2M17 17v2"/></svg><b id="modeDriveTime">—</b></button>
+        <button class="mode-btn" data-mode="cycling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17 10 7h4l2 4M10 7h5"/></svg><b id="modeBikeTime">—</b></button>
+        <button class="mode-btn" data-mode="walking"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="4" r="2"/><path d="M12 6v7M12 13l-3 7M12 13l3 7M8 9l4 1 4-1"/></svg><b id="modeWalkTime">—</b></button>
+      </div>
+      <div id="routePreviewMap"></div>
+      <div class="route-body">
+        <div class="route-main" id="routeMain">
+          <div class="rm-time"><b id="rmTime">—</b><span id="rmDist"></span></div>
+          <div class="rm-tag" id="rmTag">Fastest route</div>
+        </div>
+        <div class="route-actions">
+          <button class="ra-btn" id="raSteps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Steps</button>
+          <button class="ra-btn primary" id="raStart"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>Start</button>
+          <button class="ra-btn" id="raPin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>Pin</button>
+        </div>
+        <div class="other-routes-label" id="otherLabel" style="display:none">Other routes</div>
+        <div class="other-routes" id="otherRoutes"></div>
+        <div class="free-trip-card">
+          <div class="ftc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="2"><path d="M4 12c2-4 4-4 6 0s4 4 6 0 4-4 4 0"/></svg></div>
+          <div class="ftc-text"><b>Start trip without destination</b><span>Record your drive or walk</span></div>
+          <button class="ftc-btn" id="freeTripBtn">Start trip</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREE TRIP RECORDING BAR (screen 2) -->
+    <div class="free-badge" id="freeBadge"><span class="fb-dot"></span><div><b>Free trip</b><span>No destination set</span></div></div>
+    <div class="gps-chip" id="gpsChip">GPS <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--live)" stroke-width="2"><path d="M4 20V10M9 20V4M14 20v-8M19 20V8"/></svg> <span id="gpsText">High accuracy</span></div>
+
+    <!-- NAVIGATION / RECORDING BOTTOM PANEL (screens 2,3) -->
+    <div class="nav-panel" id="navPanel">
+      <div class="nav-turn" id="navTurn" style="display:none">
+        <div class="nt-main"><svg id="ntIcon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="var(--ember)" stroke-width="2.5"><path d="M9 18V9a3 3 0 0 1 3-3h5M17 6l-3-3M17 6l-3 3"/></svg><div><b id="ntDist">—</b><span id="ntText">Continue</span></div><button class="nt-voice" id="ntVoice"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM5 10v1a7 7 0 0 0 14 0v-1M12 19v3"/></svg></button></div>
+        <div class="nt-then" id="ntThen"></div>
+      </div>
+      <div class="nav-stats" id="navStats">
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--ember)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b id="nsEta">—</b><span id="nsEtaLabel">ETA</span></div>
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--text-2)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg><b id="nsSpeed">0</b><span>km/h</span></div>
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--text-2)" stroke-width="2"><path d="M4 19h16M6 19V9l6-5 6 5v10"/></svg><b id="nsDist">0.0</b><span id="nsDistLabel">Distance</span></div>
+      </div>
+      <button class="nav-end" id="navEnd"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>End trip</button>
+    </div>
+
   </div>
 
   <!-- ===== FRIENDS PAGE ===== -->
