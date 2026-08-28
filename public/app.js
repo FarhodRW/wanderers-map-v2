@@ -731,7 +731,7 @@
 
   // ================= MESSAGES =================
   let chatWith=null, chatName='', msgUnread=0, _fallbackKnown=0;
-  const nameFor=id=>{ const p=people.get(id); return (p&&p.name)||'Wanderer'; };
+  const nameFor=id=>{ const p=people.get(id); return (p&&p.data&&p.data.name)||'Wanderer'; };
   function avatarHTML(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
 
   function setMsgBadge(n){
@@ -756,20 +756,24 @@
 
   async function loadThreadList(){
     const box=document.getElementById('msgThreadList');
+    if(!box){ console.log('[msg] msgThreadList element missing'); return; }
     box.innerHTML=`<div class="msg-empty">Loading…</div>`;
+    let d;
     try{
       const r=await fetch('/msg/overview?me='+encodeURIComponent(myId),{cache:'no-store'});
-      const d=await r.json();
-      setMsgBadge(d.unread||0);
-      const threads=(d.threads||[]);
-      if(!threads.length){ box.innerHTML=`<div class="msg-empty">No conversations yet.<br>Open a friend and tap Message to start chatting.</div>`; return; }
-      // make sure we have names/photos for everyone in the list
-      await ensurePhotos(threads.map(t=>t.with));
-      const profs=await namesFor(threads.map(t=>t.with));
+      d=await r.json();
+    }catch(e){ console.log('[msg] overview fetch failed',e.message); box.innerHTML=`<div class="msg-empty">Couldn't load messages.<br>Check your connection.</div>`; return; }
+    console.log('[msg] overview:',d);
+    setMsgBadge(d.unread||0);
+    const threads=(d.threads||[]);
+    if(!threads.length){ box.innerHTML=`<div class="msg-empty">No conversations yet.<br>Open a friend and tap Message to start chatting.</div>`; return; }
+    // Render immediately with whatever names/photos we already have,
+    // so the list ALWAYS appears; enrich with fetched names/photos after.
+    const paint=(profs)=>{
       box.innerHTML=threads.map(t=>{
-        const nm=profs[t.with]||nameFor(t.with);
+        const nm=(profs&&profs[t.with])||nameFor(t.with);
         const mine=t.lastFrom===myId;
-        const preview=(mine?'You: ':'')+t.lastText;
+        const preview=(mine?'You: ':'')+(t.lastText||'');
         return `<div class="msg-row ${t.unread?'unread':''}" data-id="${t.with}" data-name="${esc(nm)}">
           <div class="mr-av">${avatarHTML(t.with,nm)}</div>
           <div class="mr-body">
@@ -780,7 +784,13 @@
         </div>`;
       }).join('');
       box.querySelectorAll('.msg-row').forEach(el=>el.onclick=()=>openChat(el.dataset.id,el.dataset.name));
-    }catch(e){ box.innerHTML=`<div class="msg-empty">Couldn't load messages.</div>`; }
+    };
+    paint(null);                      // show the list right away
+    try{
+      await ensurePhotos(threads.map(t=>t.with));
+      const profs=await namesFor(threads.map(t=>t.with));
+      paint(profs);                   // re-paint with real names + photos
+    }catch(e){ console.log('[msg] enrich failed',e.message); /* list already shown */ }
   }
 
   // fetch display names for ids we might not have live (uses /profile/many)
@@ -807,7 +817,9 @@
     try{
       const r=await fetch(`/msg/thread?me=${encodeURIComponent(myId)}&with=${encodeURIComponent(id)}`,{cache:'no-store'});
       const d=await r.json();
-      renderBubbles(d.messages||[]);
+      const list=d.messages||[];
+      renderBubbles(list);
+      _fallbackKnown=list.length;   // baseline so the poll only reacts to NEW messages
     }catch(e){ bubbles.innerHTML=`<div class="msg-empty">Couldn't load this chat.</div>`; }
     // mark read + clear badge
     try{ await fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:id})}); }catch(_){}
@@ -867,6 +879,7 @@
       && msgChatView.style.display!=='none' && chatWith===other;
     if(viewingThis){
       appendBubble(m);
+      _fallbackKnown++;   // keep poll baseline in step with the live append
       if(m.to===myId){ fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:other})}).catch(()=>{}); }
     } else {
       if(m.to===myId){ setMsgBadge(msgUnread+1); if(m.from!==myId) toast('New message'); }
