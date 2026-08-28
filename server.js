@@ -142,7 +142,7 @@ function visibleTo(viewerCircles) {
 }
 
 // ---------- SSE ----------
-const clients = new Set();  // { res, circles }
+const clients = new Set();  // { res, circles, id }
 function broadcast() {
   for (const c of clients) {
     try { c.res.write(`data: ${JSON.stringify({ friends: visibleTo(c.circles) })}\n\n`); }
@@ -150,6 +150,17 @@ function broadcast() {
   }
 }
 setInterval(broadcast, 5000);
+
+// Push an arbitrary event down the SSE stream(s) belonging to one user.
+// Used for live message delivery so the recipient sees it without polling.
+function pushToUser(id, payload) {
+  id = String(id);
+  for (const c of clients) {
+    if (c.id !== id) continue;
+    try { c.res.write(`data: ${JSON.stringify(payload)}\n\n`); }
+    catch (_) { clients.delete(c); }
+  }
+}
 
 // ---------- http ----------
 function readBody(req, cb, max) {
@@ -173,7 +184,7 @@ const server = http.createServer((req, res) => {
   if (url === '/stream') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'Connection': 'keep-alive' });
     res.write(`data: ${JSON.stringify({ friends: visibleTo(circles) })}\n\n`);
-    const c = { res, circles }; clients.add(c);
+    const c = { res, circles, id: String(qs.get('id') || '') }; clients.add(c);
     req.on('close', () => clients.delete(c));
     return;
   }
@@ -267,6 +278,53 @@ const server = http.createServer((req, res) => {
     if (store) return store.getProfiles(ids).then(m => json(res, 200, { ok: true, profiles: m })).catch(e => json(res, 500, { ok: false }));
     const out = {}; for (const i of ids) if (memProfiles[i]) out[i] = memProfiles[i];
     return json(res, 200, { ok: true, profiles: out });
+  }
+
+  // ---- messages ----
+  if (req.method === 'POST' && url === '/msg/send') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        const from = String(d.from || ''), to = String(d.to || '');
+        const text = String(d.text || '').trim();
+        if (!from || !to || !text) throw new Error('from, to and text required');
+        if (from === to) throw new Error('cannot message yourself');
+        const msg = store
+          ? await store.saveMessage(from, to, text)
+          : { _id: 'mem-' + Date.now(), pair: [from, to].sort().join('__'), from, to, text: text.slice(0, 2000), ts: Date.now(), read: false };
+        // live-deliver to the recipient (and echo to the sender's other tabs)
+        pushToUser(to, { type: 'msg', msg });
+        pushToUser(from, { type: 'msg', msg });
+        json(res, 200, { ok: true, msg });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    }, 5000);
+  }
+  if (url === '/msg/thread') {
+    const me = qs.get('me'), other = qs.get('with');
+    if (!me || !other) return json(res, 400, { ok: false, error: 'me and with required' });
+    if (!store) return json(res, 200, { ok: true, messages: [] });
+    return store.getThread(me, other)
+      .then(m => json(res, 200, { ok: true, messages: m }))
+      .catch(e => json(res, 500, { ok: false, error: e.message }));
+  }
+  if (url === '/msg/overview') {
+    const me = qs.get('me');
+    if (!me) return json(res, 400, { ok: false });
+    if (!store) return json(res, 200, { ok: true, threads: [], unread: 0 });
+    return Promise.all([store.getOverview(me), store.unreadCount(me)])
+      .then(([threads, unread]) => json(res, 200, { ok: true, threads, unread }))
+      .catch(e => json(res, 500, { ok: false, error: e.message }));
+  }
+  if (req.method === 'POST' && url === '/msg/read') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        const me = String(d.me || ''), from = String(d.from || '');
+        if (!me || !from) throw new Error('me and from required');
+        if (store) await store.markRead(me, from);
+        json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
   }
 
   // static
