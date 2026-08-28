@@ -63,7 +63,13 @@
   const TT_KEY='I2iVgAycefIcOeRT8fdsmI0UiIMvMDcS';
 
   // ---------- map ----------
-  const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
+  const map=L.map('map',{zoomControl:false,attributionControl:true,
+    scrollWheelZoom:true,touchZoom:true}).setView([41.0,71.67],14);
+  // Trackpad pinch on laptops fires ctrl+wheel; translate it into map zoom.
+  map.getContainer().addEventListener('wheel',ev=>{
+    if(ev.ctrlKey){ ev.preventDefault();
+      map.setZoom(map.getZoom()-ev.deltaY*0.01); }
+  },{passive:false});
   const TT_TILE=st=>`https://{s}.api.tomtom.com/map/1/tile/basic/${st}/{z}/{x}/{y}.png?key=${TT_KEY}`;
   const TILES={
     light:{url:TT_TILE('main'),attribution:'&copy; TomTom',sub:'abcd'},
@@ -82,6 +88,11 @@
     tileLayer=tileLayerFor(theme,19).addTo(map);
   }
   applyTiles();
+  // Leaflet sometimes renders before the container has its final size, freezing
+  // the view at the initial zoom until the user interacts. Re-measure after layout.
+  setTimeout(()=>map.invalidateSize(),200);
+  setTimeout(()=>map.invalidateSize(),800);
+  window.addEventListener('resize',()=>map.invalidateSize());
   mapReady=true;
   // ensure the map sizes correctly once laid out
   setTimeout(()=>map.invalidateSize(),200);
