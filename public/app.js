@@ -3,11 +3,12 @@
 
   // ---------- theme ----------
   const root=document.documentElement;
+  let mapReady=false;   // becomes true once the map + tiles exist
   const savedTheme=localStorage.getItem('wm_theme'); if(savedTheme) root.setAttribute('data-theme',savedTheme);
   function applyThemeUI(){
     const t=root.getAttribute('data-theme');
     const tv=document.getElementById('themeVal'); if(tv) tv.textContent = t==='dark'?'Dark':'Light';
-    if(typeof applyTiles==='function') applyTiles();
+    if(mapReady) applyTiles();
   }
   document.getElementById('themeRow').onclick=()=>{
     const next=root.getAttribute('data-theme')==='dark'?'light':'dark';
@@ -68,6 +69,7 @@
     tileLayer=L.tileLayer(t.url,{maxZoom:19,attribution:t.attribution,subdomains:t.sub}).addTo(map);
   }
   applyTiles();
+  mapReady=true;
   // ensure the map sizes correctly once laid out
   setTimeout(()=>map.invalidateSize(),200);
   window.addEventListener('load',()=>map.invalidateSize());
