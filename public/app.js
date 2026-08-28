@@ -730,7 +730,7 @@
   window._followTick=()=>{ if(followMode){ const me=people.get(myId); if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.5}); } };
 
   // ================= MESSAGES =================
-  let chatWith=null, chatName='', msgUnread=0;
+  let chatWith=null, chatName='', msgUnread=0, _fallbackKnown=0;
   const nameFor=id=>{ const p=people.get(id); return (p&&p.name)||'Wanderer'; };
   function avatarHTML(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
 
@@ -797,7 +797,7 @@
 
   async function openChat(id,name){
     if(!id||id===myId) return;
-    chatWith=id; chatName=name||nameFor(id);
+    chatWith=id; chatName=name||nameFor(id); _fallbackKnown=0;
     showTab('messages');
     msgListView.style.display='none'; msgChatView.style.display='flex';
     document.getElementById('msgChatName').textContent=chatName;
@@ -882,10 +882,10 @@
     const y=new Date(now); y.setDate(now.getDate()-1); if(same(d,y))return'Yesterday';
     return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
 
-  // Fallback when SSE is unavailable: reload the open thread + badge on a timer.
-  let _fallbackKnown=0;
+  // Reliable receive: poll the open thread + badge on a short timer.
+  // Runs even when SSE is up, as a safety net — the live push is the fast path,
+  // this guarantees delivery if a push is ever missed. Cheap (one small request).
   async function pollMsgsFallback(){
-    if(sseAlive) return;
     refreshMsgBadge();
     const viewingChat = pages.messages.classList.contains('active') && msgChatView.style.display!=='none' && chatWith;
     if(viewingChat){
@@ -894,8 +894,11 @@
         if(list.length!==_fallbackKnown){ _fallbackKnown=list.length; renderBubbles(list);
           fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:chatWith})}).catch(()=>{}); }
       }catch(_){}
+    } else if(pages.messages.classList.contains('active')){
+      loadThreadList();
     }
   }
+  setInterval(pollMsgsFallback, 3000);
 
   refreshMsgBadge();
   setInterval(refreshMsgBadge, 30000);
@@ -909,8 +912,8 @@
   }
   function connect(){
     poll();
-    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,4000); setInterval(pollMsgsFallback,5000);}; }
-    catch(_){ setInterval(poll,4000); setInterval(pollMsgsFallback,5000); }
+    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,4000);}; }
+    catch(_){ setInterval(poll,4000); }
   }
   connect();
   requestAnimationFrame(animate);
