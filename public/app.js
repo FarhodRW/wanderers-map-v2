@@ -45,7 +45,7 @@
   paintIdentity(); applyThemeUI();
 
   // ---------- tabs ----------
-  const pages={map:document.getElementById('page-map'),friends:document.getElementById('page-friends'),trips:document.getElementById('page-trips'),profile:document.getElementById('page-profile'),summary:document.getElementById('page-summary')};
+  const pages={map:document.getElementById('page-map'),friends:document.getElementById('page-friends'),trips:document.getElementById('page-trips'),profile:document.getElementById('page-profile'),summary:document.getElementById('page-summary'),messages:document.getElementById('page-messages')};
   function showTab(name){
     for(const k in pages) pages[k].classList.toggle('active', k===name);
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
@@ -54,47 +54,22 @@
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
   // profile & messages open from corners
   ['profBtn','profBtn2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
-  ['msgBtn','msgBtn2','msgBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
-
-  // ---------- TomTom key (used by tiles, search and routing) ----------
-
-  // ---------- TomTom key (used by tiles, search and routing) ----------
-  // Client-side key. Restrict it by domain in the TomTom dashboard.
-  const TT_KEY='I2iVgAycefIcOeRT8fdsmI0UiIMvMDcS';
+  ['msgBtn','msgBtn2','msgBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>openMessages();});
 
   // ---------- map ----------
-  const map=L.map('map',{zoomControl:false,attributionControl:true,
-    scrollWheelZoom:true,touchZoom:true}).setView([41.0,71.67],14);
-  // Trackpad pinch on laptops fires ctrl+wheel; translate it into map zoom.
-  map.getContainer().addEventListener('wheel',ev=>{
-    if(ev.ctrlKey){ ev.preventDefault();
-      map.setZoom(map.getZoom()-ev.deltaY*0.01); }
-  },{passive:false});
-  // Map picture: OpenStreetMap (light) + Carto (dark) — much better street/building
-  // coverage for Uzbekistan than TomTom's basic tiles. TomTom is still used for
-  // search + routing below; only the visible tiles come from OSM/Carto.
+  const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
   const TILES={
     light:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attribution:'&copy; OpenStreetMap',sub:'abc'},
     dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'}
   };
-  // One place that builds a tile layer — every map in the app uses it.
-  function tileLayerFor(theme,maxZoom){
-    const t=TILES[theme==='dark'?'dark':'light'];
-    return L.tileLayer(t.url,{maxZoom:maxZoom||19,attribution:t.attribution,
-      subdomains:t.sub});
-  }
   let tileLayer=null;
   function applyTiles(){
     const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
     if(tileLayer) map.removeLayer(tileLayer);
-    tileLayer=tileLayerFor(theme,19).addTo(map);
+    const t=TILES[theme];
+    tileLayer=L.tileLayer(t.url,{maxZoom:19,attribution:t.attribution,subdomains:t.sub}).addTo(map);
   }
   applyTiles();
-  // Leaflet sometimes renders before the container has its final size, freezing
-  // the view at the initial zoom until the user interacts. Re-measure after layout.
-  setTimeout(()=>map.invalidateSize(),200);
-  setTimeout(()=>map.invalidateSize(),800);
-  window.addEventListener('resize',()=>map.invalidateSize());
   mapReady=true;
   // ensure the map sizes correctly once laid out
   setTimeout(()=>map.invalidateSize(),200);
@@ -249,7 +224,7 @@
     // wire actions (rebind each open, closure over current f)
     document.getElementById('fsheetNav').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}`,'_blank');
     document.getElementById('fsheetFocus').onclick=()=>{ map.setView([p.lat,p.lon],17,{animate:true}); closeFriendCard(); };
-    document.getElementById('fsheetMsg').onclick=()=>alert('Messaging — coming in a later phase.');
+    document.getElementById('fsheetMsg').onclick=()=>{ const who=openCardId; closeFriendCard(); openChat(who, f.name); };
     drawPath(f);
   }
   function initPathMap(){
@@ -257,7 +232,7 @@
     if(!pathMap){
       pathMap=L.map('fsheetPathMap',{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
       const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      tileLayerFor(theme,19).addTo(pathMap);
+      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(pathMap);
     }
     pathMap.invalidateSize();
     const p=people.get(openCardId); if(p) drawPath(p.data);
@@ -429,7 +404,7 @@
     if(!summaryMap){
       summaryMap=L.map('summaryMap',{zoomControl:false,attributionControl:false});
       const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      tileLayerFor(theme,19).addTo(summaryMap);
+      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(summaryMap);
     }
     summaryMap.invalidateSize();
     if(summaryLine)summaryLine.forEach(l=>summaryMap.removeLayer(l)); summaryLine=[];
@@ -469,7 +444,7 @@
         if(route.length>1){
           const mm=L.map('thmap-'+i,{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
           const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-          tileLayerFor(theme,17).addTo(mm);
+          L.tileLayer(TILES[theme].url,{maxZoom:17,subdomains:TILES[theme].sub}).addTo(mm);
           const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:2.5}).addTo(mm);
           setTimeout(()=>{mm.invalidateSize();mm.fitBounds(line.getBounds(),{padding:[6,6]});},100);
         }
@@ -478,8 +453,7 @@
   }
   loadHistory();
 
-  // ================= NAVIGATION (TomTom Search + Routing, traffic-aware) =====
-  // Client-side key. Restrict it by domain in the TomTom dashboard.
+  // ================= NAVIGATION (free: Nominatim + OSRM) =================
   let destination=null, destMarker=null, previewMap=null, previewLines=[], routeData={}, curMode='driving', chosenIdx=0;
   let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
   const $=id=>document.getElementById(id);
@@ -503,42 +477,45 @@
     searchResults.innerHTML=`<div class="sr-empty">Searching…</div>`; searchResults.classList.add('on');
     const me=myPos();
     try{
-      // Pass 1: nearby-first (50 km around me). TomTom returns .dist already.
-      let d=await ttSearch(q, me?`&lat=${me[0]}&lon=${me[1]}&radius=50000`:'', 10);
-      // Pass 2: if too few local hits, widen (still biased toward me)
-      if(d.length<3 && me){
-        const wide=await ttSearch(q,`&lat=${me[0]}&lon=${me[1]}`,10);
-        const seen=new Set(d.map(x=>x.id));
-        wide.forEach(x=>{ if(!seen.has(x.id)){ d.push(x); seen.add(x.id); } });
+      // Pass 1: strongly prefer nearby results (bounded viewbox around me)
+      let d=[];
+      if(me){
+        const r=0.6; // ~60km box
+        const vb=`&viewbox=${me[1]-r},${me[0]+r},${me[1]+r},${me[0]-r}&bounded=1`;
+        d=await nomFetch(q,vb,10);
+      }
+      // Pass 2: if too few local hits, widen to unbounded (still biased near me)
+      if(d.length<3){
+        const vb=me?`&viewbox=${me[1]-4},${me[0]+4},${me[1]+4},${me[0]-4}&bounded=0`:'';
+        const wide=await nomFetch(q,vb,10);
+        // merge, dedupe by place_id
+        const seen=new Set(d.map(x=>x.place_id));
+        wide.forEach(x=>{ if(!seen.has(x.place_id)){ d.push(x); seen.add(x.place_id); } });
       }
       if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found near you</div>`; return; }
-      if(me) d.forEach(x=>{ if(x._dist==null) x._dist=metres(me[0],me[1],x.lat,x.lon); });
-      d.sort((a,b)=>(a._dist==null?1e12:a._dist)-(b._dist==null?1e12:b._dist));
+      // sort by distance from me (closest first) — this is the Google-like ranking
+      if(me){
+        d.forEach(x=>{ x._dist=metres(me[0],me[1],parseFloat(x.lat),parseFloat(x.lon)); });
+        d.sort((a,b)=>a._dist-b._dist);
+      }
       d=d.slice(0,7);
       searchResults.innerHTML=d.map((x,i)=>{
+        const name=x.display_name.split(',')[0];
+        const rest=x.display_name.split(',').slice(1,3).join(',').trim();
         const dist=x._dist!=null?(x._dist<1000?Math.round(x._dist)+' m':(x._dist/1000).toFixed(1)+' km'):'';
-        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(x.name)}</b><span>${esc(x.rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
+        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
       }).join('');
       searchResults.querySelectorAll('.sr-item').forEach(el=>el.onclick=()=>{
         const x=d[el.dataset.i];
         document.body.classList.remove('searching'); searchResults.classList.remove('on');
-        openRoutePreview(x.lat,x.lon,x.name);
+        openRoutePreview(parseFloat(x.lat),parseFloat(x.lon),x.display_name.split(',')[0]);
       });
-    }catch(e){ console.log('[search] failed',e.message); searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
+    }catch(e){ searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
   }
-  async function ttSearch(q,bias,limit){
-    const url=`https://api.tomtom.com/search/2/search/${encodeURIComponent(q)}.json?key=${TT_KEY}&limit=${limit}&typeahead=true&language=en-GB${bias||''}`;
-    const r=await fetch(url);
-    if(!r.ok) throw new Error('search HTTP '+r.status);
-    const j=await r.json();
-    return (j.results||[]).map(x=>{
-      const a=x.address||{}, poi=x.poi||{};
-      const name=poi.name||a.streetName||a.municipality||a.freeformAddress||'Place';
-      let rest=a.freeformAddress||'';
-      if(rest===name) rest=[a.municipality,a.countrySubdivision].filter(Boolean).join(', ');
-      return { id:x.id, name:name, rest:rest, lat:x.position.lat, lon:x.position.lon,
-               _dist:(typeof x.dist==='number')?x.dist:null };
-    });
+  async function nomFetch(q,vb,limit){
+    const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${limit}&addressdetails=1${vb||''}`;
+    const r=await fetch(url,{headers:{'Accept':'application/json'}});
+    return await r.json();
   }
 
   map.on('click',e=>{ if(navigating||freeRoaming) return; openRoutePreview(e.latlng.lat,e.latlng.lng,'Dropped pin'); });
@@ -548,7 +525,7 @@
     if(!previewMap){
       previewMap=L.map('routePreviewMap',{zoomControl:false,attributionControl:false});
       const th=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      tileLayerFor(th,19).addTo(previewMap);
+      L.tileLayer(TILES[th].url,{maxZoom:19,subdomains:TILES[th].sub}).addTo(previewMap);
     }
     setTimeout(()=>previewMap.invalidateSize(),120);
     routeData={}; curMode='driving';
@@ -558,6 +535,7 @@
   $('rhBack').onclick=closeRoutePreview;
   function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
 
+  const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
   // realistic average speeds for a mid-size Uzbek city (km/h) — accounts for
   // lights, turns, congestion; free routing has no live traffic so we estimate.
   const REAL_SPEED={driving:26,cycling:13,walking:4.7};
@@ -575,9 +553,10 @@
         done++;
         if(routes&&routes.length){
           anyOk=true;
-          // TomTom gives real traffic-aware times (_realMin set in adaptTT).
-          // REAL_SPEED is only a fallback if a time is somehow missing.
-          routes.forEach(rt=>{ if(!rt._realMin) rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
+          // Use the road DISTANCE from routing (reliable), but compute TIME
+          // ourselves from realistic mode speeds — the free server's own
+          // durations are optimistic (no traffic) and often identical across modes.
+          routes.forEach(rt=>{ rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
           setModeTime(m,routes[0]._realMin);
           routeData[m]=routes;
           if(m===curMode) renderRoutes();
@@ -601,51 +580,22 @@
     $('rmTag').textContent='Estimated (routing server busy)';
     renderRoutes();
   }
-  const TT_MODE={driving:'car',cycling:'bicycle',walking:'pedestrian'};
   async function fetchMode(mode,me){
-    const tm=TT_MODE[mode]||'car';
-    const url=`https://api.tomtom.com/routing/1/calculateRoute/${me[0]},${me[1]}:${destination.lat},${destination.lon}/json`
-      +`?key=${TT_KEY}&maxAlternatives=2&travelMode=${tm}&instructionsType=text&language=en-GB`
-      +'&routeRepresentation=polyline&sectionType=travelMode'
-      +(tm==='car'?'&traffic=true&routeType=fastest':'');
-    try{
-      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),9000);
-      const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
-      if(!r.ok){ console.log('[route]',mode,'tomtom HTTP',r.status); return null; }
-      const d=await r.json();
-      if(!d.routes||!d.routes.length){ console.log('[route]',mode,'no routes'); return null; }
-      console.log('[route]',mode,d.routes.length+' route(s) via tomtom');
-      return d.routes.slice(0,3).map(adaptTT);
-    }catch(e){ console.log('[route]',mode,'failed tomtom',e.message); return null; }
-  }
-  // Convert a TomTom route into the shape the rest of the app already uses
-  // (OSRM-like: geometry.coordinates [lon,lat], distance, duration, legs[0].steps).
-  function adaptTT(rt){
-    const pts=[];
-    (rt.legs||[]).forEach(lg=>(lg.points||[]).forEach(p=>pts.push([p.longitude,p.latitude])));
-    const sum=rt.summary||{};
-    const secs=sum.travelTimeInSeconds||0;
-    const instr=(rt.guidance&&rt.guidance.instructions)||[];
-    const steps=instr.map((ins,i)=>{
-      const nx=instr[i+1];
-      const off=ins.routeOffsetInMeters||0;
-      const dist=nx?Math.max(0,(nx.routeOffsetInMeters||0)-off):Math.max(0,(sum.lengthInMeters||0)-off);
-      let road=ins.street||'';
-      if(!road && ins.roadNumbers && ins.roadNumbers.length) road=ins.roadNumbers[0];
-      return { distance:dist, name:road, _msg:ins.message||'', maneuver:ttManeuver(ins) };
-    });
-    return { distance:sum.lengthInMeters||0, duration:secs,
-             _realMin:Math.max(1,Math.round(secs/60)),
-             _delay:sum.trafficDelayInSeconds||0,
-             geometry:{coordinates:pts}, legs:[{steps:steps}] };
-  }
-  function ttManeuver(ins){
-    const m=((ins.maneuver||'')+' '+(ins.instructionType||'')).toUpperCase();
-    if(m.indexOf('ARRIV')>=0) return {type:'arrive'};
-    if(m.indexOf('DEPART')>=0) return {type:'depart'};
-    if(m.indexOf('ROUNDABOUT')>=0) return {type:'roundabout'};
-    const mod=m.indexOf('LEFT')>=0?'left':m.indexOf('RIGHT')>=0?'right':'straight';
-    return {type:'turn',modifier:mod};
+    // Use the profile-correct server FIRST so bike/walk differ from car.
+    const profile=mode==='driving'?'car':mode==='cycling'?'bike':'foot';
+    const paths=[
+      `https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`,
+      `https://router.project-osrm.org/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`
+    ];
+    for(const url of paths){
+      try{
+        const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
+        const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
+        const d=await r.json();
+        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,d.routes.length+' route(s) via',url.split('/')[2]); return d.routes.slice(0,3); }
+      }catch(e){ console.log('[route]',mode,'failed',url.split('/')[2],e.message); }
+    }
+    return null;
   }
   function renderRoutes(){
     const routes=routeData[curMode]; if(!routes||!previewMap) return;
@@ -668,8 +618,7 @@
     const rt=routes[i];
     $('rmTime').textContent=(rt._realMin||Math.round(rt.duration/60))+' min';
     $('rmDist').textContent='('+(rt.distance/1000).toFixed(1)+' km)';
-    const delayMin=rt._delay?Math.round(rt._delay/60):0;
-    $('rmTag').textContent=(i===0?'Fastest route':'Alternative route')+(delayMin>=1?` · +${delayMin} min traffic`:'');
+    $('rmTag').textContent=i===0?'Fastest route':'Alternative route';
     const others=routes.map((r,j)=>({r,j})).filter(o=>o.j!==i);
     $('otherLabel').style.display=others.length?'block':'none';
     $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${o.r._realMin||Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
@@ -678,7 +627,7 @@
   document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>{
     curMode=b.dataset.mode;
     document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('sel',x===b));
-    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;setModeTime(curMode,r[0]._realMin);renderRoutes();}});
+    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;renderRoutes();}});
   });
   $('raStart').onclick=()=>startNavigation();
   $('raPin').onclick=()=>toast('Saved places — coming soon');
@@ -707,9 +656,9 @@
     if(!navSteps.length) return;
     const step=navSteps[navStepIdx]; if(!step) return; const man=step.maneuver||{};
     $('ntDist').innerHTML=(step.distance>=1000?(step.distance/1000).toFixed(1)+'<span> km</span>':Math.round(step.distance)+'<span> m</span>');
-    $('ntText').textContent=step._msg||turnText(man,step.name);
+    $('ntText').textContent=turnText(man,step.name);
     const nxt=navSteps[navStepIdx+1];
-    $('ntThen').innerHTML=nxt?('Then · '+(nxt._msg||turnText(nxt.maneuver||{},nxt.name))):'';
+    $('ntThen').innerHTML=nxt?('Then · '+turnText(nxt.maneuver||{},nxt.name)):'';
     $('ntIcon').innerHTML=turnIcon(man);
   }
   function turnText(man,road){
@@ -772,7 +721,7 @@
   function showSteps(rt){
     const steps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[];
     if(!steps.length){ toast('No turn steps available'); return; }
-    alert('Directions:\n\n'+steps.map(s=>'• '+(s._msg||turnText(s.maneuver||{},s.name))+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
+    alert('Directions:\n\n'+steps.map(s=>'• '+turnText(s.maneuver||{},s.name)+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
   }
 
   $('recenterBtn').onclick=()=>{ const me=myPos(); if(me){ followMode=true; map.setView(me,navigating||freeRoaming?17:16,{animate:true}); } };
@@ -780,11 +729,188 @@
   map.on('dragstart',()=>{ if(navigating||freeRoaming) followMode=false; });
   window._followTick=()=>{ if(followMode){ const me=people.get(myId); if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.5}); } };
 
+  // ================= MESSAGES =================
+  let chatWith=null, chatName='', msgUnread=0;
+  const nameFor=id=>{ const p=people.get(id); return (p&&p.name)||'Wanderer'; };
+  function avatarHTML(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
+
+  function setMsgBadge(n){
+    msgUnread=n;
+    ['msgBadge'].forEach(id=>{ const e=document.getElementById(id); if(!e)return;
+      if(n>0){ e.textContent=n>99?'99+':n; e.style.display='flex'; } else e.style.display='none'; });
+  }
+  async function refreshMsgBadge(){
+    try{ const r=await fetch('/msg/overview?me='+encodeURIComponent(myId),{cache:'no-store'});
+      const d=await r.json(); if(d.ok) setMsgBadge(d.unread||0); }catch(_){}
+  }
+
+  const msgListView=document.getElementById('msgListView');
+  const msgChatView=document.getElementById('msgChatView');
+  function openMessages(){
+    showTab('messages');
+    msgChatView.style.display='none'; msgListView.style.display='flex';
+    loadThreadList();
+  }
+  document.getElementById('msgListBack').onclick=()=>showTab('map');
+  document.getElementById('msgChatBack').onclick=()=>openMessages();
+
+  async function loadThreadList(){
+    const box=document.getElementById('msgThreadList');
+    box.innerHTML=`<div class="msg-empty">Loading…</div>`;
+    try{
+      const r=await fetch('/msg/overview?me='+encodeURIComponent(myId),{cache:'no-store'});
+      const d=await r.json();
+      setMsgBadge(d.unread||0);
+      const threads=(d.threads||[]);
+      if(!threads.length){ box.innerHTML=`<div class="msg-empty">No conversations yet.<br>Open a friend and tap Message to start chatting.</div>`; return; }
+      // make sure we have names/photos for everyone in the list
+      await ensurePhotos(threads.map(t=>t.with));
+      const profs=await namesFor(threads.map(t=>t.with));
+      box.innerHTML=threads.map(t=>{
+        const nm=profs[t.with]||nameFor(t.with);
+        const mine=t.lastFrom===myId;
+        const preview=(mine?'You: ':'')+t.lastText;
+        return `<div class="msg-row ${t.unread?'unread':''}" data-id="${t.with}" data-name="${esc(nm)}">
+          <div class="mr-av">${avatarHTML(t.with,nm)}</div>
+          <div class="mr-body">
+            <div class="mr-top"><span class="mr-name">${esc(nm)}</span><span class="mr-time">${shortTime(t.lastTs)}</span></div>
+            <div class="mr-last">${esc(preview)}</div>
+          </div>
+          ${t.unread?`<span class="mr-badge">${t.unread}</span>`:''}
+        </div>`;
+      }).join('');
+      box.querySelectorAll('.msg-row').forEach(el=>el.onclick=()=>openChat(el.dataset.id,el.dataset.name));
+    }catch(e){ box.innerHTML=`<div class="msg-empty">Couldn't load messages.</div>`; }
+  }
+
+  // fetch display names for ids we might not have live (uses /profile/many)
+  async function namesFor(ids){
+    const out={};
+    ids.forEach(id=>{ const p=people.get(id); if(p&&p.name) out[id]=p.name; });
+    const missing=ids.filter(id=>!out[id]);
+    if(missing.length){
+      try{ const r=await fetch('/profile/many?ids='+encodeURIComponent(missing.join(',')));
+        const d=await r.json(); if(d.ok&&d.profiles) for(const id in d.profiles) out[id]=d.profiles[id].name||'Wanderer'; }catch(_){}
+    }
+    return out;
+  }
+
+  async function openChat(id,name){
+    if(!id||id===myId) return;
+    chatWith=id; chatName=name||nameFor(id);
+    showTab('messages');
+    msgListView.style.display='none'; msgChatView.style.display='flex';
+    document.getElementById('msgChatName').textContent=chatName;
+    const bubbles=document.getElementById('msgBubbles');
+    bubbles.innerHTML=`<div class="msg-empty">Loading…</div>`;
+    await ensurePhotos([id]);
+    try{
+      const r=await fetch(`/msg/thread?me=${encodeURIComponent(myId)}&with=${encodeURIComponent(id)}`,{cache:'no-store'});
+      const d=await r.json();
+      renderBubbles(d.messages||[]);
+    }catch(e){ bubbles.innerHTML=`<div class="msg-empty">Couldn't load this chat.</div>`; }
+    // mark read + clear badge
+    try{ await fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:id})}); }catch(_){}
+    refreshMsgBadge();
+    setTimeout(()=>document.getElementById('msgInput').focus(),120);
+  }
+
+  function renderBubbles(list){
+    const box=document.getElementById('msgBubbles');
+    if(!list.length){ box.innerHTML=`<div class="msg-empty">Say hello 👋</div>`; return; }
+    let html='', lastDay='';
+    list.forEach(m=>{
+      const day=dayLabel(m.ts);
+      if(day!==lastDay){ html+=`<div class="msg-daysep">${day}</div>`; lastDay=day; }
+      const mine=m.from===myId;
+      html+=`<div class="bubble ${mine?'me':'them'}">${esc(m.text)}<div class="bt">${shortTime(m.ts)}</div></div>`;
+    });
+    box.innerHTML=html;
+    box.scrollTop=box.scrollHeight;
+  }
+
+  function appendBubble(m){
+    const box=document.getElementById('msgBubbles');
+    const empty=box.querySelector('.msg-empty'); if(empty) box.innerHTML='';
+    const mine=m.from===myId;
+    const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
+    const div=document.createElement('div');
+    div.className='bubble '+(mine?'me':'them');
+    div.innerHTML=esc(m.text)+`<div class="bt">${shortTime(m.ts)}</div>`;
+    box.appendChild(div);
+    if(near||mine) box.scrollTop=box.scrollHeight;
+  }
+
+  async function sendMsg(){
+    const input=document.getElementById('msgInput');
+    const text=input.value.trim();
+    if(!text||!chatWith) return;
+    input.value='';
+    try{
+      const r=await fetch('/msg/send',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({from:myId,to:chatWith,text})});
+      const d=await r.json();
+      if(!d.ok){ toast(d.error||'Message failed'); input.value=text; }
+      // the SSE echo will append it; if SSE is down, append now as fallback
+      else if(!sseAlive) appendBubble(d.msg);
+    }catch(e){ toast('Message failed'); input.value=text; }
+  }
+  document.getElementById('msgSend').onclick=sendMsg;
+  document.getElementById('msgInput').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); sendMsg(); } });
+
+  // live incoming message (from SSE)
+  let sseAlive=false;
+  function handleIncomingMsg(m){
+    if(!m) return;
+    const other = m.from===myId ? m.to : m.from;
+    const viewingThis = pages.messages.classList.contains('active')
+      && msgChatView.style.display!=='none' && chatWith===other;
+    if(viewingThis){
+      appendBubble(m);
+      if(m.to===myId){ fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:other})}).catch(()=>{}); }
+    } else {
+      if(m.to===myId){ setMsgBadge(msgUnread+1); if(m.from!==myId) toast('New message'); }
+      // if the list is open, refresh it
+      if(pages.messages.classList.contains('active') && msgChatView.style.display==='none') loadThreadList();
+    }
+  }
+
+  function shortTime(ts){ if(!ts)return''; const d=new Date(ts); return d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
+  function dayLabel(ts){ const d=new Date(ts), now=new Date();
+    const same=(a,b)=>a.toDateString()===b.toDateString();
+    if(same(d,now))return'Today';
+    const y=new Date(now); y.setDate(now.getDate()-1); if(same(d,y))return'Yesterday';
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+
+  // Fallback when SSE is unavailable: reload the open thread + badge on a timer.
+  let _fallbackKnown=0;
+  async function pollMsgsFallback(){
+    if(sseAlive) return;
+    refreshMsgBadge();
+    const viewingChat = pages.messages.classList.contains('active') && msgChatView.style.display!=='none' && chatWith;
+    if(viewingChat){
+      try{ const r=await fetch(`/msg/thread?me=${encodeURIComponent(myId)}&with=${encodeURIComponent(chatWith)}`,{cache:'no-store'});
+        const d=await r.json(); const list=d.messages||[];
+        if(list.length!==_fallbackKnown){ _fallbackKnown=list.length; renderBubbles(list);
+          fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:chatWith})}).catch(()=>{}); }
+      }catch(_){}
+    }
+  }
+
+  refreshMsgBadge();
+  setInterval(refreshMsgBadge, 30000);
+
+  // include my id on the stream so the server can push messages addressed to me
+  const streamQS = (circleQS ? circleQS+'&' : '?') + 'id=' + encodeURIComponent(myId);
   function poll(){ fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}); }
+  function onStreamData(data){
+    if(data && data.type==='msg'){ handleIncomingMsg(data.msg); return; }
+    handle(data);
+  }
   function connect(){
     poll();
-    try{ const es=new EventSource('/stream'+circleQS); es.onmessage=e=>{try{handle(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{es.close();setInterval(poll,4000);}; }
-    catch(_){ setInterval(poll,4000); }
+    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,4000); setInterval(pollMsgsFallback,5000);}; }
+    catch(_){ setInterval(poll,4000); setInterval(pollMsgsFallback,5000); }
   }
   connect();
   requestAnimationFrame(animate);
