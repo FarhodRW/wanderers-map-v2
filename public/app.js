@@ -606,6 +606,7 @@
     const tm=TT_MODE[mode]||'car';
     const url=`https://api.tomtom.com/routing/1/calculateRoute/${me[0]},${me[1]}:${destination.lat},${destination.lon}/json`
       +`?key=${TT_KEY}&maxAlternatives=2&travelMode=${tm}&instructionsType=text&language=en-GB`
+      +'&routeRepresentation=polyline&sectionType=travelMode'
       +(tm==='car'?'&traffic=true&routeType=fastest':'');
     try{
       const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),9000);
