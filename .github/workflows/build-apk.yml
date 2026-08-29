@@ -52,15 +52,17 @@ jobs:
           '
           cat twa/twa-manifest.json
 
-      - name: Build & sign APK (regenerates project from twa-manifest.json — no init)
+      - name: Build & sign APK (regenerate project from manifest, then build)
         working-directory: twa
         env:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # --manifest points at the directory holding twa-manifest.json.
-          # build regenerates the Android project from it, then compiles — no prompts.
-          bubblewrap build --skipPwaValidation --manifest="."
+          # 'update' regenerates the full Android project from twa-manifest.json.
+          bubblewrap update --manifest="./twa-manifest.json" || true
+          echo "---- files after update ----"; ls -la
+          # then build & sign — all answers already in the manifest, no prompts.
+          bubblewrap build --skipPwaValidation --manifest="./twa-manifest.json"
           echo "---- outputs ----"; ls -la *.apk *.aab 2>/dev/null || echo "NO APK PRODUCED"
 
       - name: Upload APK
