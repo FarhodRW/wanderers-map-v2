@@ -186,10 +186,10 @@
 
   /* ============ PROFILE ============ */
   .prof-hero{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 20px 18px;}
-  .prof-av{position:relative;width:108px;height:108px;border-radius:50%;overflow:hidden;border:3px solid var(--surface);box-shadow:0 4px 14px var(--shadow);background:var(--surface-2);cursor:pointer;}
-  .prof-av img{width:100%;height:100%;object-fit:cover;}
-  .prof-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:40px;color:var(--text-2);}
-  .prof-av .edit{position:absolute;right:4px;bottom:4px;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;}
+  .prof-av{position:relative;width:108px;height:108px;border-radius:50%;border:3px solid var(--surface);box-shadow:0 4px 14px var(--shadow);background:var(--surface-2);cursor:pointer;}
+  .prof-av img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+  .prof-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:40px;color:var(--text-2);border-radius:50%;}
+  .prof-av .edit{position:absolute;right:4px;bottom:4px;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;z-index:2;}
   .prof-av .edit svg{width:14px;height:14px;color:var(--text-2);}
   /* photo crop overlay */
   .crop-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:6000;display:none;align-items:center;justify-content:center;padding:20px;}
@@ -615,7 +615,7 @@
         <div class="title">Messages</div>
         <div style="width:46px"></div>
       </div>
-      <div id="msgThreadList" style="flex:1;overflow-y:auto;padding:8px 0 calc(20px + env(safe-area-inset-bottom));"></div>
+      <div id="msgThreadList" style="flex:1;overflow-y:auto;padding:calc(60px + env(safe-area-inset-top)) 0 calc(20px + env(safe-area-inset-bottom));"></div>
     </div>
     <!-- single conversation view -->
     <div id="msgChatView" style="display:none;flex-direction:column;height:100%;">
@@ -624,7 +624,7 @@
         <div class="title" id="msgChatName">Chat</div>
         <div style="width:46px"></div>
       </div>
-      <div id="msgBubbles" style="flex:1;overflow-y:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:8px;"></div>
+      <div id="msgBubbles" style="flex:1;overflow-y:auto;padding:calc(64px + env(safe-area-inset-top)) 14px 14px;display:flex;flex-direction:column;gap:8px;"></div>
       <div class="msg-compose">
         <input id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000">
         <button id="msgSend" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg></button>
