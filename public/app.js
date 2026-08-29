@@ -36,6 +36,12 @@
   }
   const groupIds=()=>myGroups.map(g=>g.id);
   function saveGroups(){ localStorage.setItem('wm_groups',JSON.stringify(myGroups)); }
+  // register my membership for every group I'm in (covers groups joined before
+  // rosters existed, and refreshes my name/photo). Runs once at startup.
+  function syncMembership(){
+    myGroups.forEach(g=>fetch('/group/join',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:g.id,id:myId,name:myName,groupName:g.name})}).catch(()=>{}));
+  }
 
   function initials(n){ n=(n||'').trim(); return n?n[0].toUpperCase():'?'; }
 
@@ -269,24 +275,80 @@
   function renderGroups(){
     const html = myGroups.length
       ? myGroups.map((g,i)=>`
-        <div class="grp-row" data-i="${i}">
-          <div class="gi">${grpInitial(g.name)}</div>
-          <div class="gt"><b>${esc(g.name)}</b><span>${esc(g.id)}</span></div>
-          <button class="gact share" data-act="share" title="Invite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg></button>
-          <button class="gact" data-act="leave" title="Leave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+        <div class="grp-wrap" data-i="${i}">
+          <div class="grp-row" data-i="${i}">
+            <div class="gi">${grpInitial(g.name)}</div>
+            <div class="gt gtap"><b>${esc(g.name)}</b><span>${esc(g.id)} · tap to see members</span></div>
+            <button class="gact share" data-act="share" title="Invite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg></button>
+            <button class="gact" data-act="leave" title="Leave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+          </div>
+          <div class="grp-members" data-for="${i}" style="display:none;"></div>
         </div>`).join('')
       : `<div class="grp-empty">No groups yet. Create one or join with a link/code.</div>`;
     ['groupList','groupListProfile'].forEach(id=>{ const box=document.getElementById(id); if(box) box.innerHTML=html; });
     const desc=document.getElementById('circleDesc');
     if(desc) desc.textContent = myGroups.length ? (myGroups.length+' group'+(myGroups.length>1?'s':'')+' — friends here can see you when you share.') : "You're not in any group yet.";
-    // wire row buttons
-    document.querySelectorAll('.grp-row').forEach(row=>{
-      const g=myGroups[row.dataset.i];
-      row.querySelectorAll('.gact').forEach(btn=>btn.onclick=()=>{
+    // wire rows
+    document.querySelectorAll('.grp-wrap').forEach(wrap=>{
+      const i=wrap.dataset.i, g=myGroups[i];
+      wrap.querySelectorAll('.gact').forEach(btn=>btn.onclick=(ev)=>{
+        ev.stopPropagation();
         if(btn.dataset.act==='share') shareGroup(g);
         else leaveGroup(g);
       });
+      const tap=wrap.querySelector('.gtap'); const panel=wrap.querySelector('.grp-members');
+      if(tap&&panel) tap.onclick=()=>{
+        const open=panel.style.display!=='none';
+        // close others
+        document.querySelectorAll('.grp-members').forEach(p=>p.style.display='none');
+        if(!open){ panel.style.display='block'; renderGroupMembers(g,panel); }
+      };
     });
+  }
+
+  // Full roster (from server) merged with live positions. Everyone in the group
+  // shows — live members get status/distance, others show as offline. All get Message.
+  async function renderGroupMembers(g,panel){
+    panel.innerHTML=`<div class="gm-empty">Loading members…</div>`;
+    let roster=[];
+    try{
+      const r=await fetch('/group/members?codes='+encodeURIComponent(g.id),{cache:'no-store'});
+      const d=await r.json();
+      roster=(d.ok && d.members && d.members[g.id.toUpperCase()])||[];
+    }catch(_){}
+    // make sure we have photos for everyone
+    await ensurePhotos(roster.map(m=>m.userId));
+    const mp=myPos();
+    const live=new Map([...people.values()].map(p=>[p.data.id,p.data]));
+    // ensure I'm in the list even if the roster fetch lagged
+    if(!roster.some(m=>m.userId===myId)) roster.unshift({userId:myId,name:myName});
+    // sort: me first, then live/online, then the rest
+    roster.sort((a,b)=>{
+      if(a.userId===myId)return -1; if(b.userId===myId)return 1;
+      const la=live.has(a.userId)?0:1, lb=live.has(b.userId)?0:1; return la-lb;
+    });
+    panel.innerHTML=roster.map(m=>{
+      const isMe=m.userId===myId;
+      const f=live.get(m.userId);
+      const on=f&&f.ageSec<90;
+      const dist=(f&&mp)?fmtDist(metres(mp[0],mp[1],f.lat,f.lon)):'';
+      let sub;
+      if(isMe) sub='You';
+      else if(on) sub=(f.status||(f.speed>3?'Moving':'Nearby'));
+      else if(f) sub=`Last seen ${Math.round(f.ageSec/60)} min ago`;
+      else sub='Not sharing location';
+      const msgBtn=isMe?'':`<button class="gm-msg" data-id="${m.userId}" data-name="${esc(m.name)}" title="Message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>`;
+      return `<div class="gm-row" data-id="${m.userId}" data-live="${f?1:0}">
+        <div class="gm-av">${avInner(m.userId,m.name)}<span class="livedot ${on?'on':'off'}"></span></div>
+        <div class="gm-t"><b>${isMe?'You':esc(m.name)}</b><span>${esc(sub)}</span></div>
+        ${dist?`<div class="gm-dist">${dist}</div>`:''}
+        ${msgBtn}
+      </div>`;
+    }).join('') || `<div class="gm-empty">No members yet. Tap the share icon to invite friends.</div>`;
+    // message button → open chat (works even if they're not sharing location)
+    panel.querySelectorAll('.gm-msg').forEach(b=>b.onclick=(ev)=>{ ev.stopPropagation(); openChat(b.dataset.id,b.dataset.name); });
+    // tapping a live member's row → their map card
+    panel.querySelectorAll('.gm-row[data-live="1"]').forEach(el=>el.onclick=()=>{ if(el.dataset.id===myId)return; showTab('map'); const f=(people.get(el.dataset.id)||{}).data; if(f) openFriendCard(f.id); });
   }
 
   function inviteText(g){ return `Join my group "${g.name}" on The Wanderers' Map:\n${location.origin}/?join=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}\n\nOr open ${location.origin} and enter code ${g.id}`; }
@@ -309,6 +371,9 @@
     if(!id) return false;
     if(myGroups.some(g=>g.id===id)){ toast('Already in that group'); return false; }
     myGroups.push({id,name:(name||id).slice(0,40)}); saveGroups(); renderGroups();
+    // record persistent membership so others see me in the roster even when not sharing
+    fetch('/group/join',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:id,id:myId,name:myName,groupName:(name||'')})}).catch(()=>{});
     return true;
   }
 
@@ -339,7 +404,10 @@
 
   function leaveGroup(g){
     if(!confirm(`Leave "${g.name}"?`)) return;
-    myGroups=myGroups.filter(x=>x.id!==g.id); saveGroups(); renderGroups(); reloadSoon();
+    myGroups=myGroups.filter(x=>x.id!==g.id); saveGroups(); renderGroups();
+    fetch('/group/leave',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:g.id,id:myId})}).catch(()=>{});
+    reloadSoon();
   }
 
   // group membership changes what you see, so a quick reload re-subscribes cleanly
@@ -371,7 +439,63 @@
   // photo picker
   const fileInput=document.createElement('input'); fileInput.type='file'; fileInput.accept='image/*'; fileInput.style.display='none'; document.body.appendChild(fileInput);
   document.getElementById('profAv').onclick=()=>fileInput.click();
-  fileInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const img=new Image();img.onload=()=>{const S=96,cv=document.createElement('canvas');cv.width=S;cv.height=S;const x=cv.getContext('2d');const side=Math.min(img.width,img.height);x.drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S,S);myPhoto=cv.toDataURL('image/jpeg',0.7);localStorage.setItem('wm_photo',myPhoto);photoCache.set(myId,myPhoto);paintIdentity();saveProfile();};img.src=rd.result;};rd.readAsDataURL(f);};
+  fileInput.onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>openCropper(rd.result); rd.readAsDataURL(f); fileInput.value=''; };
+
+  // ---- interactive photo cropper (drag to position, slider to zoom) ----
+  const cropScrim=document.getElementById('cropScrim'), cropStage=document.getElementById('cropStage'),
+        cropImg=document.getElementById('cropImg'), cropZoom=document.getElementById('cropZoom');
+  const STAGE=260; let cropState={scale:1,minScale:1,x:0,y:0,natW:0,natH:0};
+  function openCropper(src){
+    const im=new Image();
+    im.onload=()=>{
+      cropState.natW=im.naturalWidth; cropState.natH=im.naturalHeight;
+      // base scale so the image covers the square stage
+      const cover=Math.max(STAGE/im.naturalWidth, STAGE/im.naturalHeight);
+      cropState.minScale=cover; cropState.scale=cover;
+      cropImg.src=src;
+      cropImg.style.width=im.naturalWidth+'px'; cropImg.style.height=im.naturalHeight+'px';
+      cropZoom.min=cover; cropZoom.max=cover*3; cropZoom.step=cover*0.01; cropZoom.value=cover;
+      // center it
+      cropState.x=(STAGE-im.naturalWidth*cover)/2; cropState.y=(STAGE-im.naturalHeight*cover)/2;
+      applyCrop();
+      cropScrim.classList.add('on');
+    };
+    im.src=src;
+  }
+  function clampCrop(){
+    const w=cropState.natW*cropState.scale, h=cropState.natH*cropState.scale;
+    cropState.x=Math.min(0,Math.max(STAGE-w,cropState.x));
+    cropState.y=Math.min(0,Math.max(STAGE-h,cropState.y));
+  }
+  function applyCrop(){ clampCrop(); cropImg.style.transform=`translate(${cropState.x}px,${cropState.y}px) scale(${cropState.scale})`; }
+  cropZoom.oninput=()=>{
+    const old=cropState.scale, ns=parseFloat(cropZoom.value);
+    // zoom around stage center
+    const cx=STAGE/2, cy=STAGE/2;
+    cropState.x=cx-(cx-cropState.x)*(ns/old);
+    cropState.y=cy-(cy-cropState.y)*(ns/old);
+    cropState.scale=ns; applyCrop();
+  };
+  // drag (mouse + touch)
+  let drag=null;
+  const startDrag=(px,py)=>{ drag={px,py,ox:cropState.x,oy:cropState.y}; };
+  const moveDrag=(px,py)=>{ if(!drag)return; cropState.x=drag.ox+(px-drag.px); cropState.y=drag.oy+(py-drag.py); applyCrop(); };
+  cropStage.addEventListener('mousedown',e=>startDrag(e.clientX,e.clientY));
+  window.addEventListener('mousemove',e=>moveDrag(e.clientX,e.clientY));
+  window.addEventListener('mouseup',()=>drag=null);
+  cropStage.addEventListener('touchstart',e=>{ if(e.touches[0])startDrag(e.touches[0].clientX,e.touches[0].clientY); },{passive:true});
+  cropStage.addEventListener('touchmove',e=>{ if(e.touches[0]){moveDrag(e.touches[0].clientX,e.touches[0].clientY);} },{passive:true});
+  cropStage.addEventListener('touchend',()=>drag=null);
+  document.getElementById('cropCancel').onclick=()=>cropScrim.classList.remove('on');
+  document.getElementById('cropSave').onclick=()=>{
+    const S=96, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const x=cv.getContext('2d');
+    // map the visible stage area back to source pixels
+    const sx=-cropState.x/cropState.scale, sy=-cropState.y/cropState.scale, sSide=STAGE/cropState.scale;
+    x.drawImage(cropImg,sx,sy,sSide,sSide,0,0,S,S);
+    myPhoto=cv.toDataURL('image/jpeg',0.72);
+    localStorage.setItem('wm_photo',myPhoto); photoCache.set(myId,myPhoto);
+    paintIdentity(); saveProfile(); cropScrim.classList.remove('on'); toast('Photo updated');
+  };
   async function saveProfile(){ try{ await fetch('/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName,photo:myPhoto||null,status:myStatus})}); }catch(_){} }
 
   // ---------- sharing ----------
@@ -1079,5 +1203,6 @@
     catch(_){ setInterval(poll,4000); }
   }
   connect();
+  syncMembership();
   requestAnimationFrame(animate);
 })();
