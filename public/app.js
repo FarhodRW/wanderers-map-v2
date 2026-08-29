@@ -134,7 +134,7 @@
       seen.add(f.id);
       let p=people.get(f.id);
       if(!p){ p={marker:makeMarker(f),lat:f.lat,lon:f.lon,tLat:f.lat,tLon:f.lon,data:f,stepAcc:0,side:1}; people.set(f.id,p); }
-      else{ const jump=metres(p.tLat,p.tLon,f.lat,f.lon); if(jump>12||(f.speed||0)>4){p.tLat=f.lat;p.tLon=f.lon;} p.data=f; }
+      else{ const jump=metres(p.tLat,p.tLon,f.lat,f.lon); if(jump>2||(f.speed||0)>0.5){p.tLat=f.lat;p.tLon=f.lon;} p.data=f; }
       if(f.heading!=null){const a=p.marker.getElement()?.querySelector('.aa-arrow'); if(a)a.style.transform=`translateX(-50%) rotate(${f.heading}deg)`;}
     }
     for(const[id,p]of people){ if(!seen.has(id)){ map.removeLayer(p.marker); people.delete(id); } }
@@ -150,7 +150,7 @@
   let _followCounter=0;
   function animate(){
     for(const[id,p]of people){
-      p.lat+=(p.tLat-p.lat)*0.14; p.lon+=(p.tLon-p.lon)*0.14;
+      p.lat+=(p.tLat-p.lat)*0.30; p.lon+=(p.tLon-p.lon)*0.30;
       p.marker.setLatLng([p.lat,p.lon]);
       const moved=metres(p.lat,p.lon,p._plat??p.lat,p._plon??p.lon);
       const driving=(p.data.speed||0)>12;
@@ -532,8 +532,8 @@
     let sentOnce=false;
     watch=navigator.geolocation.watchPosition(pos=>{
       const c=pos.coords,now=Date.now();
-      if(c.accuracy>60&&sentOnce) return;
-      if(now-lastSent<800) return; lastSent=now; sentOnce=true;
+      if(c.accuracy>80&&sentOnce) return;
+      if(now-lastSent<500) return; lastSent=now; sentOnce=true;
       fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:groupIds(),
         gspeed:(c.speed>=0)?c.speed:null,heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
@@ -1204,8 +1204,8 @@
   }
   function connect(){
     poll();
-    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,4000);}; }
-    catch(_){ setInterval(poll,4000); }
+    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,2000);}; }
+    catch(_){ setInterval(poll,2000); }
   }
   connect();
   syncMembership();
