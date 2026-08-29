@@ -29,40 +29,38 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli@latest
 
-      - name: Point Bubblewrap at the preinstalled JDK + Android SDK
+      - name: Point Bubblewrap at preinstalled JDK + SDK
         run: |
-          # The runner already has both installed and licensed. Tell Bubblewrap
-          # exactly where they are so it does NOT try to download its own SDK
-          # (which fails with "Terms and Conditions was not signed").
           SDK_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
-          echo "Using JDK: $JAVA_HOME"
-          echo "Using SDK: $SDK_PATH"
-          ls -la "$SDK_PATH" || true
           mkdir -p "$HOME/.bubblewrap"
           printf '{\n  "jdkPath": "%s",\n  "androidSdkPath": "%s"\n}\n' "$JAVA_HOME" "$SDK_PATH" > "$HOME/.bubblewrap/config.json"
-          echo "---- config.json ----"; cat "$HOME/.bubblewrap/config.json"
+          cat "$HOME/.bubblewrap/config.json"
 
       - name: Decode signing keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$HOME/android.keystore"
 
-      - name: Init TWA project
+      - name: Prepare project dir with our twa-manifest.json
         run: |
-          mkdir -p twa && cd twa
-          bubblewrap init \
-            --manifest="https://wanderers-map-v2.onrender.com/manifest.webmanifest" \
-            --directory="."
-          echo "---- files after init ----"; ls -la
+          mkdir -p twa
+          # write the signing key location into the manifest (absolute path — relative fails)
+          node -e '
+            const fs=require("fs");
+            const m=JSON.parse(fs.readFileSync("twa-manifest.json","utf8"));
+            m.signingKey={path:process.env.HOME+"/android.keystore",alias:"wanderers"};
+            fs.writeFileSync("twa/twa-manifest.json",JSON.stringify(m,null,2));
+            console.log("wrote twa/twa-manifest.json with signingKey");
+          '
+          cat twa/twa-manifest.json
 
-      - name: Build & sign APK
+      - name: Build & sign APK (regenerates project from twa-manifest.json — no init)
         working-directory: twa
         env:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          bubblewrap build \
-            --skipPwaValidation \
-            --signingKeyPath="$HOME/android.keystore" \
-            --signingKeyAlias="wanderers"
+          # --manifest points at the directory holding twa-manifest.json.
+          # build regenerates the Android project from it, then compiles — no prompts.
+          bubblewrap build --skipPwaValidation --manifest="."
           echo "---- outputs ----"; ls -la *.apk *.aab 2>/dev/null || echo "NO APK PRODUCED"
 
       - name: Upload APK
