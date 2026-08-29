@@ -1,1083 +1,643 @@
-(function(){
-  "use strict";
-
-  // ---------- theme ----------
-  const root=document.documentElement;
-  let mapReady=false;   // becomes true once the map + tiles exist
-  let followMode=false; // map follows me while navigating / free-roaming
-  const savedTheme=localStorage.getItem('wm_theme'); if(savedTheme) root.setAttribute('data-theme',savedTheme);
-  function applyThemeUI(){
-    const t=root.getAttribute('data-theme');
-    const tv=document.getElementById('themeVal'); if(tv) tv.textContent = t==='dark'?'Dark':'Light';
-    if(mapReady) applyTiles();
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>The Wanderers' Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root[data-theme="light"]{
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F4F2EE; --sheet:#FFFFFF;
+    --text:#141210; --text-2:#6B6156; --line:#EAE6DF;
+    --ember:#E8562A; --ember-soft:rgba(232,86,42,.12);
+    --live:#3FB950; --shadow:rgba(30,24,16,.16);
+    --ink:#2C2620; --map-filter:none;
+    --tabbar:#FFFFFF; --scrim:rgba(255,255,255,.9);
   }
-  document.getElementById('themeRow').onclick=()=>{
-    const next=root.getAttribute('data-theme')==='dark'?'light':'dark';
-    root.setAttribute('data-theme',next); localStorage.setItem('wm_theme',next); applyThemeUI();
-  };
-
-  // ---------- identity ----------
-  let myId=localStorage.getItem('wm_id');
-  if(!myId){ myId='w-'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem('wm_id',myId); }
-  let myName=localStorage.getItem('wm_name')||'';
-  let myPhoto=localStorage.getItem('wm_photo')||'';
-  let myStatus=localStorage.getItem('wm_status')||'';
-  // Groups replace the old single "circle". Each group = {id, name}. The id is the
-  // code the visibility engine matches on; name is a friendly label. Multiple allowed.
-  let myGroups=[];
-  try{ myGroups=JSON.parse(localStorage.getItem('wm_groups')||'[]'); }catch(_){ myGroups=[]; }
-  if(!Array.isArray(myGroups)) myGroups=[];
-  // migrate an old single circle into the groups list, once
-  const _oldCircle=localStorage.getItem('wm_circle')||'';
-  if(_oldCircle && !myGroups.some(g=>g.id===_oldCircle)){
-    myGroups.push({id:_oldCircle,name:_oldCircle});
-    localStorage.setItem('wm_groups',JSON.stringify(myGroups));
-    localStorage.removeItem('wm_circle');
+  :root[data-theme="dark"]{
+    --bg:#0E0D0C; --surface:#1A1815; --surface-2:#222019; --sheet:#17150F;
+    --text:#F2ECE1; --text-2:#9C9182; --line:#2C2820;
+    --ember:#E8562A; --ember-soft:rgba(232,86,42,.18);
+    --live:#4FC760; --shadow:rgba(0,0,0,.55);
+    --ink:#E4D3B0; --map-filter:none;
+    --tabbar:#141210; --scrim:rgba(14,13,12,.88);
   }
-  const groupIds=()=>myGroups.map(g=>g.id);
-  function saveGroups(){ localStorage.setItem('wm_groups',JSON.stringify(myGroups)); }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);}
 
-  function initials(n){ n=(n||'').trim(); return n?n[0].toUpperCase():'?'; }
+  /* ---- tab pages ---- */
+  .page{position:absolute;inset:0;display:none;flex-direction:column;}
+  .page.active{display:flex;}
+  #page-map.active{display:block;}
 
-  // reflect identity into the various avatar/name slots
-  function paintIdentity(){
-    // top-right profile buttons
-    ['profImg','profImg2','profImg3'].forEach(id=>{const e=document.getElementById(id); if(!e)return; if(myPhoto){e.src=myPhoto;e.style.display='block';}else e.style.display='none';});
-    ['profIni','profIni2','profIni3'].forEach(id=>{const e=document.getElementById(id); if(!e)return; e.style.display=myPhoto?'none':'block'; e.textContent=initials(myName);});
-    // profile page hero
-    const pImg=document.getElementById('profAvImg'),pIni=document.getElementById('profAvIni');
-    if(myPhoto){pImg.src=myPhoto;pImg.style.display='block';pIni.style.display='none';}else{pImg.style.display='none';pIni.style.display='flex';pIni.textContent=initials(myName);}
-    document.getElementById('profName').textContent = myName || 'Set your name';
-    document.getElementById('statusInput').value = myStatus;
-    renderGroups();
-  }
-  paintIdentity(); applyThemeUI();
+  /* ============ MAP ============ */
+  #map{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--surface-2);}
+  .leaflet-tile-pane{filter:var(--map-filter);}
+  .leaflet-control-attribution{background:var(--scrim)!important;color:var(--text-2)!important;font-size:9px!important;}
+  .leaflet-control-attribution a{color:var(--ember)!important;}
+  .leaflet-control-zoom{display:none;}
 
-  // ---------- tabs ----------
-  const pages={map:document.getElementById('page-map'),friends:document.getElementById('page-friends'),trips:document.getElementById('page-trips'),profile:document.getElementById('page-profile'),summary:document.getElementById('page-summary'),messages:document.getElementById('page-messages')};
-  function showTab(name){
-    for(const k in pages) pages[k].classList.toggle('active', k===name);
-    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-    if(name==='map' && map) setTimeout(()=>map.invalidateSize(),50);
-  }
-  document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
-  // profile & messages open from corners
-  ['profBtn','profBtn2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
-  ['msgBtn','msgBtn2','msgBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>openMessages();});
+  /* ---- top bar (shared) ---- */
+  .topbar{position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:max(12px,env(safe-area-inset-top)) 14px 10px;display:flex;gap:10px;align-items:center;pointer-events:none;}
+  .tb-icon{pointer-events:auto;position:relative;width:46px;height:46px;flex:none;border-radius:50%;
+    border:none;background:var(--surface);box-shadow:0 3px 12px var(--shadow);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
+  .tb-icon svg{width:21px;height:21px;color:var(--text);}
+  .tb-icon img{width:100%;height:100%;object-fit:cover;}
+  .tb-badge{position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;border-radius:10px;
+    background:var(--ember);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg);}
+  .tb-search{pointer-events:auto;flex:1;display:flex;align-items:center;gap:10px;background:var(--surface);
+    border-radius:26px;padding:13px 16px;box-shadow:0 3px 12px var(--shadow);}
+  .tb-search svg{width:18px;height:18px;color:var(--text-2);flex:none;}
+  .tb-search input{border:none;background:none;outline:none;font:inherit;font-size:15px;color:var(--text);width:100%;}
+  .tb-search input::placeholder{color:var(--text-2);}
 
-  // ---------- map ----------
-  const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([41.0,71.67],14);
-  const TILES={
-    light:{url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',attribution:'&copy; OpenStreetMap',sub:'abc'},
-    dark:{url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',attribution:'&copy; OpenStreetMap &copy; CARTO',sub:'abcd'}
-  };
-  let tileLayer=null;
-  function applyTiles(){
-    const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-    if(tileLayer) map.removeLayer(tileLayer);
-    const t=TILES[theme];
-    tileLayer=L.tileLayer(t.url,{maxZoom:19,attribution:t.attribution,subdomains:t.sub}).addTo(map);
-  }
-  applyTiles();
-  mapReady=true;
-  // ensure the map sizes correctly once laid out
-  setTimeout(()=>map.invalidateSize(),200);
-  window.addEventListener('load',()=>map.invalidateSize());
+  /* page header (Friends/Profile use this instead of search) */
+  .pagehead{position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:max(12px,env(safe-area-inset-top)) 14px 10px;display:flex;gap:10px;align-items:center;
+    background:var(--bg);}
+  .pagehead .title{flex:1;text-align:center;font-size:18px;font-weight:700;}
 
-  const circleQS = groupIds().length ? ('?circles='+encodeURIComponent(groupIds().join(','))) : '';
+  /* ---- share FAB ---- */
+  .share-fab{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:1000;
+    display:flex;align-items:center;gap:9px;background:var(--ember);color:#fff;border:none;cursor:pointer;
+    border-radius:30px;padding:15px 26px;font:inherit;font-weight:600;font-size:15px;box-shadow:0 8px 24px rgba(232,86,42,.45);}
+  .share-fab:active{transform:translateX(-50%) scale(.96);}
+  .share-fab.on{background:var(--surface);color:var(--text);box-shadow:0 8px 24px var(--shadow);}
+  .share-fab svg{width:18px;height:18px;}
+  .share-fab .pulse{width:9px;height:9px;border-radius:50%;background:var(--live);}
+  .share-fab.on .pulse{animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 
-  // ---------- people & photos ----------
-  const people=new Map();     // id -> {marker,lat,lon,tLat,tLon,data,stepAcc,side,_plat,_plon}
-  const photoCache=new Map();
-  photoCache.set(myId, myPhoto||null);
+  /* ---- bottom tab bar ---- */
+  .tabbar{position:absolute;left:0;right:0;bottom:0;z-index:1100;display:flex;
+    background:var(--tabbar);border-top:1px solid var(--line);
+    padding:8px 0 max(8px,env(safe-area-inset-bottom));}
+  .tab{flex:1;background:none;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--text-2);font:inherit;font-size:11px;font-weight:600;padding:4px 0;}
+  .tab svg{width:24px;height:24px;}
+  .tab.active{color:var(--ember);}
+  .tab .dash{width:16px;height:3px;border-radius:2px;background:transparent;margin-top:1px;}
+  .tab.active .dash{background:var(--ember);}
 
-  function avInner(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
+  /* ---- map markers ---- */
+  .wm{background:none!important;border:none!important;}
+  .avatar-arrow{position:relative;width:56px;height:64px;transform:translate(-50%,-70%);}
+  .aa-arrow{position:absolute;top:-4px;left:50%;transform:translateX(-50%);transition:transform .5s ease;}
+  .aa-arrow svg{width:20px;height:20px;display:block;color:var(--ember);}
+  .aa-ring{position:absolute;left:50%;top:14px;width:46px;height:46px;transform:translateX(-50%);
+    border-radius:50%;overflow:hidden;border:3px solid #fff;background:var(--surface-2);box-shadow:0 3px 10px var(--shadow);}
+  .aa-ring img{width:100%;height:100%;object-fit:cover;}
+  .aa-ring .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ember);font-size:17px;}
+  .fp{background:none!important;border:none!important;}
 
-  function makeMarker(f){
-    const el=L.divIcon({className:'wm',iconSize:[56,64],html:
-      `<div class="avatar-arrow" data-id="${f.id}">
-        <div class="aa-arrow"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 22l8-5 8 5z"/></svg></div>
-        <div class="aa-ring">${avInner(f.id,f.name)}</div>
-      </div>`});
-    const m=L.marker([f.lat,f.lon],{icon:el,keyboard:false}).addTo(map);
-    m.on('click',()=>openFriendCard(f.id));
-    return m;
-  }
+  /* ============ FRIENDS ============ */
+  #page-messages{background:var(--bg);}
+  /* conversation list */
+  .msg-row{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .msg-row:active{background:var(--surface-2);}
+  .msg-row .mr-av{width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface-2);border:2px solid var(--ember);}
+  .msg-row .mr-av img{width:100%;height:100%;object-fit:cover;}
+  .msg-row .mr-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ember);}
+  .msg-row .mr-body{flex:1;min-width:0;}
+  .msg-row .mr-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .msg-row .mr-name{font-weight:700;font-size:15px;}
+  .msg-row .mr-time{font-size:12px;color:var(--text-2);flex-shrink:0;}
+  .msg-row .mr-last{font-size:13px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;}
+  .msg-row.unread .mr-last{color:var(--text);font-weight:600;}
+  .msg-row .mr-badge{min-width:20px;height:20px;border-radius:10px;background:var(--ember);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 6px;flex-shrink:0;}
+  .msg-empty{text-align:center;color:var(--text-2);padding:60px 30px;font-size:14px;line-height:1.6;}
+  /* chat bubbles */
+  .bubble{max-width:78%;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.35;word-wrap:break-word;}
+  .bubble.them{align-self:flex-start;background:var(--surface-2);border-bottom-left-radius:5px;}
+  .bubble.me{align-self:flex-end;background:var(--ember);color:#fff;border-bottom-right-radius:5px;}
+  .bubble .bt{font-size:11px;opacity:.7;margin-top:3px;text-align:right;}
+  .msg-daysep{align-self:center;font-size:12px;color:var(--text-2);background:var(--surface-2);padding:3px 12px;border-radius:12px;margin:6px 0;}
+  .msg-compose{display:flex;gap:8px;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--sheet);}
+  .msg-compose input{flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:22px;padding:11px 16px;font-size:15px;color:var(--text);outline:none;}
+  .msg-compose input:focus{border-color:var(--ember);}
+  .msg-compose button{width:44px;height:44px;border-radius:50%;border:none;background:var(--ember);color:#fff;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .msg-compose button svg{width:20px;height:20px;}
+  .msg-compose button:disabled{opacity:.4;}
+  #page-friends,#page-trips,#page-profile{background:var(--bg);overflow-y:auto;
+    padding-top:calc(max(12px,env(safe-area-inset-top)) + 60px);padding-bottom:calc(90px + env(safe-area-inset-bottom));}
+  .circle-box{margin:12px 16px 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;}
+  .circle-box .cb-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;}
+  .circle-box h3{font-size:15px;font-weight:700;margin-bottom:3px;}
+  .circle-box p{font-size:12.5px;color:var(--text-2);}
+  .grp-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-2);border-radius:12px;margin-bottom:8px;}
+  .grp-row .gi{width:34px;height:34px;border-radius:9px;background:var(--ember-soft);color:var(--ember);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none;}
+  .grp-row .gt{flex:1;min-width:0;}
+  .grp-row .gt b{font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .grp-row .gt span{font-size:11.5px;color:var(--text-2);}
+  .grp-row .gact{background:none;border:none;padding:6px;cursor:pointer;color:var(--text-2);flex:none;}
+  .grp-row .gact svg{width:18px;height:18px;}
+  .grp-row .gact.share{color:var(--ember);}
+  .grp-empty{font-size:12.5px;color:var(--text-2);padding:6px 2px;}
+  .code-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ember);color:var(--ember);
+    border-radius:20px;padding:8px 14px;font-weight:700;font-size:14px;letter-spacing:.04em;background:none;cursor:pointer;flex:none;}
+  .code-pill svg{width:15px;height:15px;}
+  .cb-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .cb-act{background:var(--surface-2);border:none;border-radius:12px;padding:14px 6px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--text);font:inherit;font-size:12px;font-weight:600;}
+  .cb-act svg{width:20px;height:20px;color:var(--text);}
+  .flist-head{display:flex;justify-content:space-between;align-items:center;padding:14px 20px 8px;}
+  .flist-head .lbl{font-size:14px;font-weight:600;}
+  .flist-head .cnt{font-size:12.5px;color:var(--text-2);display:flex;align-items:center;gap:6px;}
+  .flist-head .cnt .d{width:7px;height:7px;border-radius:50%;background:var(--live);}
+  .frow{display:flex;align-items:center;gap:13px;padding:12px 16px;cursor:pointer;}
+  .frow:active{background:var(--surface-2);}
+  .fav{position:relative;width:52px;height:52px;flex:none;border-radius:50%;overflow:hidden;background:var(--surface-2);}
+  .fav img{width:100%;height:100%;object-fit:cover;}
+  .fav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--text-2);font-size:19px;}
+  .fav .livedot{position:absolute;right:1px;top:1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);}
+  .fav .livedot.on{background:var(--live);}
+  .fav .livedot.off{background:#B9B0A2;}
+  .fmeta{flex:1;min-width:0;}
+  .fmeta .fn{font-weight:700;font-size:15px;}
+  .fmeta .fstat{font-size:13px;color:var(--ember);font-weight:600;margin-top:1px;}
+  .fmeta .fsub{font-size:12px;color:var(--text-2);}
+  .fnums{display:flex;gap:16px;flex:none;}
+  .fnum{text-align:center;}
+  .fnum b{display:block;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .fnum span{font-size:10px;color:var(--text-2);}
+  .empty{text-align:center;color:var(--text-2);padding:50px 30px;font-size:14px;line-height:1.6;}
 
-  async function ensurePhotos(ids){
-    const missing=ids.filter(i=>i&&!photoCache.has(i));
-    if(!missing.length) return;
-    try{
-      const r=await fetch('/profile/many?ids='+encodeURIComponent(missing.join(',')),{cache:'no-store'});
-      const d=await r.json(); let changed=false;
-      for(const id of missing){ const ph=d.profiles&&d.profiles[id]&&d.profiles[id].photo; photoCache.set(id,ph||null); if(ph)changed=true; }
-      if(changed){ for(const[id,p]of people){const ring=p.marker.getElement()?.querySelector('.aa-ring'); if(ring)ring.innerHTML=avInner(id,p.data.name);} renderFriends(); }
-    }catch(_){}
-  }
+  /* ============ PROFILE ============ */
+  .prof-hero{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 20px 18px;}
+  .prof-av{position:relative;width:108px;height:108px;border-radius:50%;overflow:hidden;border:3px solid var(--surface);box-shadow:0 4px 14px var(--shadow);background:var(--surface-2);cursor:pointer;}
+  .prof-av img{width:100%;height:100%;object-fit:cover;}
+  .prof-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:40px;color:var(--text-2);}
+  .prof-av .edit{position:absolute;right:4px;bottom:4px;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;}
+  .prof-av .edit svg{width:14px;height:14px;color:var(--text-2);}
+  .prof-name{font-size:22px;font-weight:700;}
+  .prof-status{display:flex;align-items:center;gap:10px;width:calc(100% - 40px);margin:0 20px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .prof-status input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:14px;color:var(--text);}
+  .prof-status svg{width:16px;height:16px;color:var(--text-2);}
+  .share-toggle{display:flex;align-items:center;justify-content:space-between;margin:16px 20px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+  .share-toggle .st-l{display:flex;flex-direction:column;gap:2px;}
+  .share-toggle .st-l b{font-size:15px;display:flex;align-items:center;gap:7px;}
+  .share-toggle .st-l b .d{width:8px;height:8px;border-radius:50%;background:var(--live);}
+  .share-toggle .st-l span{font-size:12.5px;color:var(--text-2);}
+  .switch{width:52px;height:30px;border-radius:16px;background:var(--line);border:none;cursor:pointer;position:relative;transition:background .2s;flex:none;}
+  .switch.on{background:var(--ember);}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .2s;}
+  .switch.on::after{transform:translateX(22px);}
+  .sec-head{font-size:15px;font-weight:700;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;}
+  .sec-head .add{color:var(--ember);font-size:13px;font-weight:600;background:none;border:none;cursor:pointer;}
+  .stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:4px 16px 10px;}
+  .stat-c{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 10px;}
+  .stat-c .k{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px;}
+  .stat-c .v{font-size:24px;font-weight:800;margin-top:6px;font-variant-numeric:tabular-nums;}
+  .stat-c .u{font-size:11px;color:var(--text-2);}
+  .setrow{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;}
+  .setrow:active{background:var(--surface-2);}
+  .setrow svg{width:19px;height:19px;color:var(--text-2);flex:none;}
+  .setrow .sl{flex:1;font-size:14.5px;font-weight:500;}
+  .setrow .sr{font-size:13px;color:var(--text-2);}
 
-  function metres(aLat,aLon,bLat,bLon){const dLat=(bLat-aLat)*111320,dLon=(bLon-aLon)*111320*Math.cos(aLat*Math.PI/180);return Math.hypot(dLat,dLon);}
-  function fmtDist(m){return m<1000?Math.round(m)+' m':(m/1000).toFixed(1)+' km';}
-  function myPos(){const me=people.get(myId);return me?[me.lat,me.lon]:null;}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
 
-  // ---------- incoming data ----------
-  let centred=false;
-  function handle(data){
-    const ids=data.friends.map(f=>f.id); ensurePhotos(ids);
-    const seen=new Set();
-    for(const f of data.friends){
-      seen.add(f.id);
-      let p=people.get(f.id);
-      if(!p){ p={marker:makeMarker(f),lat:f.lat,lon:f.lon,tLat:f.lat,tLon:f.lon,data:f,stepAcc:0,side:1}; people.set(f.id,p); }
-      else{ const jump=metres(p.tLat,p.tLon,f.lat,f.lon); if(jump>12||(f.speed||0)>4){p.tLat=f.lat;p.tLon=f.lon;} p.data=f; }
-      if(f.heading!=null){const a=p.marker.getElement()?.querySelector('.aa-arrow'); if(a)a.style.transform=`translateX(-50%) rotate(${f.heading}deg)`;}
-    }
-    for(const[id,p]of people){ if(!seen.has(id)){ map.removeLayer(p.marker); people.delete(id); } }
-    if(!centred && people.has(myId)){ const me=people.get(myId); map.setView([me.lat,me.lon],16,{animate:true}); centred=true;
-      // if the route sheet is open waiting for my location, fetch routes now
-      if(destination && routeSheet.classList.contains('on') && !routeData[curMode]) fetchAllModes();
-    }
-    renderFriends();
-    if(openCardId) renderFriendCard(openCardId);
-  }
+  /* ============ NAVIGATION ============ */
+  .search-cancel{display:none;background:none;border:none;color:var(--ember);font:inherit;font-weight:600;font-size:15px;cursor:pointer;padding:0 4px;flex:none;}
+  body.searching .tb-icon{display:none;}
+  body.searching .search-cancel{display:block;}
+  body.searching .tb-search{box-shadow:0 3px 12px var(--shadow);}
 
-  // ---------- glide + footsteps ----------
-  let _followCounter=0;
-  function animate(){
-    for(const[id,p]of people){
-      p.lat+=(p.tLat-p.lat)*0.14; p.lon+=(p.tLon-p.lon)*0.14;
-      p.marker.setLatLng([p.lat,p.lon]);
-      const moved=metres(p.lat,p.lon,p._plat??p.lat,p._plon??p.lon);
-      const driving=(p.data.speed||0)>12;
-      p.stepAcc+=moved;
-      if(p.stepAcc>(driving?32:9)){ p.stepAcc=0; p.side*=-1; dropStep(p.lat,p.lon,p.data.heading||0,p.side,driving); }
-      p._plat=p.lat; p._plon=p.lon;
-    }
-    // follow mode: keep the map centered on me while navigating / free-roaming
-    if(followMode && (++_followCounter%8===0)){
-      const me=people.get(myId);
-      if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.6});
-    }
-    requestAnimationFrame(animate);
-  }
-  function dropStep(lat,lon,heading,side,driving){
-    const offLat=Math.cos((heading+90)*Math.PI/180)*0.00003*side, offLon=Math.sin((heading+90)*Math.PI/180)*0.00003*side;
-    const s=driving?1:(0.9+Math.random()*0.2), rot=heading+(driving?0:(Math.random()*14-7));
-    const ink=getComputedStyle(root).getPropertyValue('--ink').trim()||'#2C2620';
-    const body=driving?`<rect x='5' y='2' width='6' height='16' rx='3' fill='${ink}'/>`
-      :`<path d='M8 1 C10.6 1.2 11.8 4 11.4 6.6 C11 9 9.6 10.8 8 11 C6.2 10.8 4.2 9 3.8 6.6 C3.4 4 5.4 1.2 8 1 Z' fill='${ink}'/><ellipse cx='8' cy='16' rx='2.6' ry='3' fill='${ink}'/>`;
-    const svg=encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 20'>${body}</svg>`);
-    const icon=L.divIcon({className:'fp',iconSize:[16,20],html:`<img style="width:${(16*s).toFixed(0)}px;height:${(20*s).toFixed(0)}px;transform:rotate(${rot}deg)" src="data:image/svg+xml,${svg}">`});
-    const m=L.marker([lat+offLat,lon+offLon],{icon,interactive:false,keyboard:false}).addTo(map);
-    const el=m.getElement()?.querySelector('img');
-    if(el)el.animate([{opacity:0,filter:'blur(2px)'},{opacity:.85,filter:'blur(0)',offset:.15},{opacity:.7,offset:.5},{opacity:0,filter:'blur(1px)'}],{duration:8000,easing:'ease-out'});
-    setTimeout(()=>map.removeLayer(m),8000);
-  }
+  .search-results{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 60px);left:14px;right:14px;z-index:1200;
+    background:var(--surface);border-radius:16px;box-shadow:0 8px 28px var(--shadow);overflow:hidden;display:none;max-height:60dvh;overflow-y:auto;}
+  .search-results.on{display:block;}
+  .sr-item{display:flex;align-items:center;gap:13px;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .sr-item:last-child{border-bottom:none;}
+  .sr-item:active{background:var(--surface-2);}
+  .sr-pin{width:20px;height:20px;color:var(--ember);flex:none;}
+  .sr-item .t{flex:1;min-width:0;}
+  .sr-item .t b{font-size:15px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .sr-item .t span{font-size:12.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;}
+  .sr-item .sr-go{width:16px;height:16px;color:var(--text-2);flex:none;transform:rotate(45deg);}
+  .sr-item .sr-dist{font-size:12px;font-weight:600;color:var(--ember);flex:none;}
+  .sr-empty{padding:20px 16px;color:var(--text-2);font-size:13px;text-align:center;}
 
-  // ---------- friends list ----------
-  const friendList=document.getElementById('friendList'), onlineCount=document.getElementById('onlineCount');
-  function renderFriends(){
-    const all=[...people.values()].map(p=>p.data);
-    const online=all.filter(f=>f.ageSec<90);
-    onlineCount.innerHTML=`<span class="d"></span>${online.length} online`;
-    const mp=myPos();
-    if(!all.length){ friendList.innerHTML=`<div class="empty">No one is sharing yet.<br>Share your circle code so friends can join.</div>`; return; }
-    friendList.innerHTML=all.map(f=>{
-      const isMe=f.id===myId;
-      const on=f.ageSec<90;
-      const moving=(f.speed||0)>3;
-      const dist=isMe?'you':(mp?fmtDist(metres(mp[0],mp[1],f.lat,f.lon)):'—');
-      const statusLine=f.status?`<div class="fstat">${esc(f.status)}</div>`:'';
-      const sub=isMe?'this is you':(moving?'Moving':(on?'Nearby':`Last seen ${Math.round(f.ageSec/60)} min ago`));
-      return `<div class="frow" data-id="${f.id}">
-        <div class="fav">${avInner(f.id,f.name)}<span class="livedot ${on?'on':'off'}"></span></div>
-        <div class="fmeta"><div class="fn">${isMe?'You':esc(f.name)}</div>${statusLine}<div class="fsub">${esc(sub)}</div></div>
-        <div class="fnums">
-          <div class="fnum"><b>${moving?Math.round(f.speed):'—'}</b><span>${moving?'km/h':'Speed'}</span></div>
-          <div class="fnum"><b>${dist}</b><span>${isMe?'':'from me'}</span></div>
-          <div class="fnum"><b>${f.battery!=null?f.battery+'%':'—'}</b><span>Battery</span></div>
+  .map-fab{position:absolute;right:16px;z-index:1000;width:44px;height:44px;border-radius:50%;border:none;
+    background:var(--surface);box-shadow:0 4px 14px var(--shadow);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .map-fab svg{width:20px;height:20px;color:var(--text);}
+  .map-fab.layers{bottom:calc(200px + env(safe-area-inset-bottom));}
+  .map-fab.recenter{bottom:calc(150px + env(safe-area-inset-bottom));}
+  .map-fab.recenter svg{color:var(--ember);}
+
+  /* route preview sheet */
+  .route-sheet{position:absolute;top:0;left:0;right:0;bottom:0;z-index:1250;background:var(--bg);display:none;flex-direction:column;}
+  .route-sheet.on{display:flex;}
+  .route-header{display:flex;align-items:center;gap:10px;padding:max(12px,env(safe-area-inset-top)) 14px 12px;background:var(--surface);}
+  .rh-back{width:40px;height:40px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+  .rh-back svg{width:22px;height:22px;color:var(--text);}
+  .rh-trip{flex:1;background:var(--surface-2);border-radius:12px;padding:10px 14px;}
+  .rh-row{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;}
+  .rh-dot{width:11px;height:11px;border-radius:50%;background:var(--ember);flex:none;}
+  .rh-line{width:1px;height:14px;background:var(--line);margin:2px 0 2px 5px;border-left:1px dashed var(--text-2);}
+  .rh-swap{width:40px;height:40px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+  .rh-swap svg{width:20px;height:20px;color:var(--text-2);}
+  .mode-row{display:flex;gap:10px;padding:12px 14px;background:var(--surface);border-bottom:1px solid var(--line);}
+  .mode-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border-radius:20px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--text-2);}
+  .mode-btn svg{width:18px;height:18px;}
+  .mode-btn.sel{border-color:var(--ember);color:var(--ember);background:var(--ember-soft);}
+  .route-body{flex:1;overflow-y:auto;background:var(--map-preview,var(--surface-2));}
+  #routePreviewMap{height:42vh;width:100%;background:var(--surface-2);}
+  .route-main{display:flex;align-items:baseline;gap:10px;padding:16px 18px 4px;background:var(--bg);}
+  .rm-time b{font-size:30px;font-weight:800;color:var(--ember);font-variant-numeric:tabular-nums;}
+  .rm-time span{font-size:15px;color:var(--text-2);margin-left:4px;}
+  .rm-tag{font-size:14px;color:var(--text-2);padding:0 18px 12px;background:var(--bg);}
+  .route-actions{display:flex;gap:10px;padding:0 18px 16px;background:var(--bg);}
+  .ra-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:13px;border-radius:24px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-weight:600;font-size:14px;color:var(--text);}
+  .ra-btn svg{width:17px;height:17px;}
+  .ra-btn.primary{flex:1.4;background:var(--ember);color:#fff;border-color:var(--ember);}
+  .ra-btn:active{transform:scale(.97);}
+  .other-routes-label{font-size:15px;font-weight:700;padding:8px 18px;background:var(--bg);}
+  .other-routes{display:flex;gap:10px;padding:0 18px 14px;background:var(--bg);flex-wrap:wrap;}
+  .other-route{flex:1;min-width:130px;border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;background:var(--surface);}
+  .other-route:active{background:var(--surface-2);}
+  .other-route b{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .other-route span{font-size:13px;color:var(--text-2);margin-left:5px;}
+  .free-trip-card{display:flex;align-items:center;gap:12px;margin:6px 14px 20px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:16px;}
+  .ftc-icon{width:44px;height:44px;border-radius:50%;background:var(--ember-soft);display:flex;align-items:center;justify-content:center;flex:none;}
+  .ftc-icon svg{width:24px;height:24px;}
+  .ftc-text{flex:1;min-width:0;}
+  .ftc-text b{font-size:14px;font-weight:700;display:block;}
+  .ftc-text span{font-size:12.5px;color:var(--text-2);}
+  .ftc-btn{background:var(--ember);color:#fff;border:none;border-radius:22px;padding:12px 20px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;flex:none;}
+
+  /* free trip badge + gps chip */
+  .free-badge{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 4px);left:50%;transform:translateX(-50%);z-index:1000;
+    display:none;align-items:center;gap:10px;background:var(--surface);border-radius:14px;box-shadow:0 4px 14px var(--shadow);padding:10px 16px;}
+  .free-badge.on{display:flex;}
+  .free-badge .fb-dot{width:9px;height:9px;border-radius:50%;background:var(--ember);animation:pulse 1.4s infinite;}
+  .free-badge b{font-size:14px;font-weight:700;display:block;}
+  .free-badge span{font-size:12px;color:var(--text-2);}
+  .gps-chip{position:absolute;bottom:calc(200px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:1000;
+    display:none;align-items:center;gap:6px;background:var(--surface);border-radius:20px;box-shadow:0 3px 12px var(--shadow);padding:8px 14px;font-size:12.5px;font-weight:600;}
+  .gps-chip.on{display:flex;}
+
+  /* nav / recording bottom panel */
+  .nav-panel{position:absolute;left:0;right:0;bottom:0;z-index:1250;background:var(--sheet);border-radius:20px 20px 0 0;
+    box-shadow:0 -8px 28px var(--shadow);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:none;}
+  .nav-panel.on{display:block;}
+  .nav-turn{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:10px;}
+  .nt-main{display:flex;align-items:center;gap:14px;}
+  .nt-main>div{flex:1;}
+  .nt-main b{font-size:22px;font-weight:800;}
+  .nt-main b span{font-size:14px;font-weight:500;color:var(--text-2);}
+  .nt-main>div span{font-size:14px;color:var(--text);display:block;}
+  .nt-voice{width:44px;height:44px;border-radius:50%;border:none;background:var(--surface-2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;color:var(--text-2);}
+  .nt-then{font-size:13px;color:var(--text-2);margin-top:8px;padding-left:48px;}
+  .nav-stats{display:flex;justify-content:space-around;padding:8px 0 12px;}
+  .ns{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .ns b{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ember);}
+  .ns:nth-child(2) b,.ns:nth-child(3) b{color:var(--text);}
+  .ns span{font-size:11px;color:var(--text-2);}
+  .nav-end{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:var(--ember);color:#fff;border:none;border-radius:14px;padding:15px;font:inherit;font-weight:700;font-size:16px;cursor:pointer;}
+  .nav-end:active{transform:scale(.98);}
+  body.navigating .tabbar,body.navigating .topbar,body.navigating .share-fab{display:none;}
+  body.freeroam .topbar,body.freeroam .share-fab{display:none;}
+
+  .dest-pin{background:none!important;border:none!important;}
+
+  /* ============ FRIEND DETAIL SHEET ============ */
+  .fsheet-scrim{position:absolute;inset:0;z-index:1900;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .25s;}
+  .fsheet-scrim.on{opacity:1;pointer-events:auto;}
+  .fsheet{position:absolute;left:0;right:0;bottom:0;z-index:2000;background:var(--sheet);
+    border-radius:26px 26px 0 0;box-shadow:0 -8px 30px var(--shadow);padding:0 20px calc(20px + env(safe-area-inset-bottom));
+    transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:90dvh;overflow-y:auto;}
+  .fsheet.on{transform:translateY(0);}
+  .fsheet-grip{width:38px;height:5px;border-radius:3px;background:var(--line);margin:10px auto 4px;}
+  .fsheet-close{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:50%;border:none;
+    background:var(--surface-2);cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;}
+  .fsheet-close svg{width:17px;height:17px;color:var(--text-2);}
+  .fsheet-hero{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0 18px;}
+  .fsheet-av{width:96px;height:96px;border-radius:50%;overflow:hidden;border:3px solid var(--ember);background:var(--surface-2);}
+  .fsheet-av img{width:100%;height:100%;object-fit:cover;}
+  .fsheet-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;color:var(--ember);}
+  .fsheet-name{font-size:24px;font-weight:800;}
+  .fsheet-status{font-size:14px;color:var(--ember);font-weight:600;}
+  .fsheet-live{font-size:13px;color:var(--text-2);}
+  .fsheet-live .lv{color:var(--ember);font-weight:600;}
+  .fsheet-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:var(--surface-2);border-radius:16px;padding:16px 8px;margin-bottom:14px;}
+  .fss{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;}
+  .fss svg{width:19px;height:19px;color:var(--text-2);}
+  .fss b{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;}
+  .fss span{font-size:10px;color:var(--text-2);line-height:1.3;}
+  .fsheet-path{background:var(--surface-2);border-radius:16px;padding:14px;margin-bottom:16px;}
+  .fsheet-path-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;}
+  .fsheet-path-head span:first-child{font-weight:600;}
+  .fsheet-path-head span:last-child{color:var(--text-2);}
+  .fsheet-path-map{height:90px;border-radius:10px;overflow:hidden;background:var(--surface);}
+  .fsheet-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .fsheet-act{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;border-radius:14px;
+    border:1px solid var(--line);background:var(--surface);cursor:pointer;font:inherit;font-size:12px;font-weight:600;color:var(--text);}
+  .fsheet-act svg{width:19px;height:19px;color:var(--ember);}
+  .fsheet-act.primary{background:var(--ember);color:#fff;border-color:var(--ember);}
+  .fsheet-act.primary svg{color:#fff;}
+  .fsheet-act:active{transform:scale(.97);}
+
+  /* ============ TRIPS ============ */
+  .trips-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:24px 30px 20px;}
+  .trips-hero-ill{font-size:52px;filter:grayscale(.1);}
+  .trips-hero h3{font-size:19px;font-weight:800;}
+  .trips-hero p{font-size:13.5px;color:var(--text-2);line-height:1.5;max-width:260px;}
+  .trip-start-btn{margin-top:12px;display:inline-flex;align-items:center;gap:9px;background:var(--ember);color:#fff;
+    border:none;border-radius:26px;padding:15px 30px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;box-shadow:0 8px 22px rgba(232,86,42,.4);}
+  .trip-start-btn svg{width:18px;height:18px;}
+  .trip-start-btn:active{transform:scale(.97);}
+  .trip-card{display:flex;align-items:center;gap:12px;margin:0 16px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;}
+  .trip-card:active{background:var(--surface-2);}
+  .trip-card-map{width:64px;height:64px;border-radius:10px;overflow:hidden;flex:none;background:var(--surface-2);}
+  .trip-card-info{flex:1;min-width:0;}
+  .trip-card-info .d{font-size:14px;font-weight:700;}
+  .trip-card-info .t{font-size:12px;color:var(--text-2);}
+  .trip-card-nums{display:flex;gap:14px;margin-top:6px;}
+  .trip-card-nums b{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .trip-card-nums span{font-size:10px;color:var(--text-2);display:block;}
+
+  /* live dial */
+  .trip-dial-wrap{display:flex;flex-direction:column;align-items:center;padding:20px 0 10px;position:relative;}
+  .trip-live-badge{display:inline-flex;align-items:center;gap:6px;background:var(--ember-soft);color:var(--ember);font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;margin-bottom:16px;}
+  .trip-live-badge .rdot{width:8px;height:8px;border-radius:50%;background:var(--ember);animation:pulse 1.3s infinite;}
+  .trip-dial{width:230px;height:230px;border-radius:50%;border:10px solid var(--surface-2);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;}
+  .trip-dial::before{content:"";position:absolute;inset:-10px;border-radius:50%;border:10px solid transparent;
+    border-top-color:var(--ember);border-right-color:var(--ember);transform:rotate(45deg);}
+  .trip-dial-num{font-size:64px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;}
+  .trip-dial-unit{font-size:16px;color:var(--text-2);font-weight:600;}
+  .trip-dial-cap{font-size:13px;color:var(--text-2);margin-top:8px;}
+  .trip-live-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:22px 16px;}
+  .tls{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;}
+  .tls .k{font-size:12px;color:var(--text-2);}
+  .tls .v{font-size:28px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .tls .u{font-size:11px;color:var(--text-2);}
+  .trip-end-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 16px;width:calc(100% - 32px);
+    background:var(--ember);color:#fff;border:none;border-radius:16px;padding:17px;font:inherit;font-weight:700;font-size:16px;cursor:pointer;}
+  .trip-end-btn .sq{width:13px;height:13px;background:#fff;border-radius:2px;}
+  .trip-end-btn:active{transform:scale(.98);}
+
+  /* summary */
+  #page-summary{background:var(--bg);}
+  .summary-map{height:200px;border-radius:16px;overflow:hidden;background:var(--surface-2);margin-bottom:14px;}
+  .summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .summary-cell{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px;}
+  .summary-cell .k{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;}
+  .summary-cell .v{font-size:24px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .summary-cell .v small{font-size:12px;font-weight:500;color:var(--text-2);}
+  .summary-btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;border-radius:14px;padding:15px;
+    font:inherit;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:10px;border:1px solid var(--ember);background:var(--surface);color:var(--ember);}
+  .summary-btn svg{width:17px;height:17px;}
+  .summary-btn.primary{background:var(--ember);color:#fff;border-color:var(--ember);}
+  .summary-btn:active{transform:scale(.99);}
+</style>
+</head>
+<body>
+
+  <!-- ===== MAP PAGE ===== -->
+  <div class="page active" id="page-map">
+    <div id="map"></div>
+    <div class="topbar" id="topbar">
+      <button class="tb-icon" id="msgBtn" aria-label="Messages">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
+        <span class="tb-badge" id="msgBadge" style="display:none">0</span>
+      </button>
+      <div class="tb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="search" placeholder="Search or set a destination"><button id="searchX" style="display:none;background:none;border:none;cursor:pointer;padding:2px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--text-2)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></button></div>
+      <button class="tb-icon" id="profBtn" aria-label="Profile"><span id="profIni" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg" alt="" style="display:none;"></button>
+      <button class="search-cancel" id="searchCancel">Cancel</button>
+    </div>
+
+    <div class="search-results" id="searchResults"></div>
+
+    <button class="map-fab layers" id="layersBtn" aria-label="Map layers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5"/></svg></button>
+    <button class="map-fab recenter" id="recenterBtn" aria-label="Recenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg></button>
+
+    <button class="share-fab" id="shareFab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+      <span class="pulse" style="display:none"></span><span id="shareLabel">Share location</span>
+    </button>
+
+    <!-- ROUTE PREVIEW (screen 1) -->
+    <div class="route-sheet" id="routeSheet">
+      <div class="route-header">
+        <button class="rh-back" id="rhBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="rh-trip">
+          <div class="rh-row"><span class="rh-dot"></span>Your location</div>
+          <div class="rh-line"></div>
+          <div class="rh-row"><svg viewBox="0 0 24 24" width="15" height="15" fill="var(--ember)"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/></svg><span id="rhDest">Destination</span></div>
         </div>
-      </div>`;
-    }).join('');
-    friendList.querySelectorAll('.frow').forEach(el=>el.onclick=()=>{ showTab('map'); const p=people.get(el.dataset.id); if(p) map.setView([p.lat,p.lon],16,{animate:true}); openFriendCard(el.dataset.id); });
-  }
-  function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+        <button class="rh-swap" id="rhSwap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3"/></svg></button>
+      </div>
+      <div class="mode-row" id="modeRow">
+        <button class="mode-btn sel" data-mode="driving"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13M5 13h14v4H5zM7 17v2M17 17v2"/></svg><b id="modeDriveTime">—</b></button>
+        <button class="mode-btn" data-mode="cycling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17 10 7h4l2 4M10 7h5"/></svg><b id="modeBikeTime">—</b></button>
+        <button class="mode-btn" data-mode="walking"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="4" r="2"/><path d="M12 6v7M12 13l-3 7M12 13l3 7M8 9l4 1 4-1"/></svg><b id="modeWalkTime">—</b></button>
+      </div>
+      <div id="routePreviewMap"></div>
+      <div class="route-body">
+        <div class="route-main" id="routeMain">
+          <div class="rm-time"><b id="rmTime">—</b><span id="rmDist"></span></div>
+          <div class="rm-tag" id="rmTag">Fastest route</div>
+        </div>
+        <div class="route-actions">
+          <button class="ra-btn" id="raSteps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Steps</button>
+          <button class="ra-btn primary" id="raStart"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>Start</button>
+          <button class="ra-btn" id="raPin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>Pin</button>
+        </div>
+        <div class="other-routes-label" id="otherLabel" style="display:none">Other routes</div>
+        <div class="other-routes" id="otherRoutes"></div>
+        <div class="free-trip-card">
+          <div class="ftc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="2"><path d="M4 12c2-4 4-4 6 0s4 4 6 0 4-4 4 0"/></svg></div>
+          <div class="ftc-text"><b>Start trip without destination</b><span>Record your drive or walk</span></div>
+          <button class="ftc-btn" id="freeTripBtn">Start trip</button>
+        </div>
+      </div>
+    </div>
 
-  // ---------- friend detail sheet (mockup img 7) ----------
-  let openCardId=null, pathMap=null, pathLayer=null;
-  const fsheet=document.getElementById('fsheet'), fsheetScrim=document.getElementById('fsheetScrim');
-  function openFriendCard(id){
-    if(id===myId) return;           // tapping yourself doesn't open a card
-    openCardId=id; renderFriendCard(id);
-    fsheet.classList.add('on'); fsheetScrim.classList.add('on');
-    setTimeout(initPathMap,320);
-  }
-  function closeFriendCard(){ openCardId=null; fsheet.classList.remove('on'); fsheetScrim.classList.remove('on'); }
-  document.getElementById('fsheetClose').onclick=closeFriendCard;
-  fsheetScrim.onclick=closeFriendCard;
+    <!-- FREE TRIP RECORDING BAR (screen 2) -->
+    <div class="free-badge" id="freeBadge"><span class="fb-dot"></span><div><b>Free trip</b><span>No destination set</span></div></div>
+    <div class="gps-chip" id="gpsChip">GPS <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--live)" stroke-width="2"><path d="M4 20V10M9 20V4M14 20v-8M19 20V8"/></svg> <span id="gpsText">High accuracy</span></div>
 
-  function avBig(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
+    <!-- NAVIGATION / RECORDING BOTTOM PANEL (screens 2,3) -->
+    <div class="nav-panel" id="navPanel">
+      <div class="nav-turn" id="navTurn" style="display:none">
+        <div class="nt-main"><svg id="ntIcon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="var(--ember)" stroke-width="2.5"><path d="M9 18V9a3 3 0 0 1 3-3h5M17 6l-3-3M17 6l-3 3"/></svg><div><b id="ntDist">—</b><span id="ntText">Continue</span></div><button class="nt-voice" id="ntVoice"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM5 10v1a7 7 0 0 0 14 0v-1M12 19v3"/></svg></button></div>
+        <div class="nt-then" id="ntThen"></div>
+      </div>
+      <div class="nav-stats" id="navStats">
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--ember)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b id="nsEta">—</b><span id="nsEtaLabel">ETA</span></div>
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--text-2)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg><b id="nsSpeed">0</b><span>km/h</span></div>
+        <div class="ns"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--text-2)" stroke-width="2"><path d="M4 19h16M6 19V9l6-5 6 5v10"/></svg><b id="nsDist">0.0</b><span id="nsDistLabel">Distance</span></div>
+      </div>
+      <button class="nav-end" id="navEnd"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>End trip</button>
+    </div>
 
-  function renderFriendCard(id){
-    const p=people.get(id); if(!p){ closeFriendCard(); return; } const f=p.data;
-    const mp=myPos(); const dist=mp?metres(mp[0],mp[1],f.lat,f.lon):null;
-    const moving=(f.speed||0)>3;
-    const eta=(dist!=null)?Math.max(1,Math.round(dist/((Math.max(f.speed,4.5))*1000/60))):null;
-    document.getElementById('fsheetAv').innerHTML=avBig(id,f.name);
-    document.getElementById('fsheetName').textContent=f.name;
-    document.getElementById('fsheetStatus').textContent=f.status||'';
-    document.getElementById('fsheetMoving').textContent=moving?'Moving':'Stopped';
-    document.getElementById('fssSpeed').textContent=moving?Math.round(f.speed):'0';
-    document.getElementById('fssDist').textContent=dist!=null?(dist<1000?Math.round(dist):(dist/1000).toFixed(1)):'—';
-    document.getElementById('fssEta').textContent=eta!=null?eta:'—';
-    document.getElementById('fssBatt').textContent=f.battery!=null?f.battery:'—';
-    // wire actions (rebind each open, closure over current f)
-    document.getElementById('fsheetNav').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}`,'_blank');
-    document.getElementById('fsheetFocus').onclick=()=>{ map.setView([p.lat,p.lon],17,{animate:true}); closeFriendCard(); };
-    document.getElementById('fsheetMsg').onclick=()=>{ const who=openCardId; closeFriendCard(); openChat(who, f.name); };
-    drawPath(f);
-  }
-  function initPathMap(){
-    if(!openCardId) return;
-    if(!pathMap){
-      pathMap=L.map('fsheetPathMap',{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
-      const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(pathMap);
-    }
-    pathMap.invalidateSize();
-    const p=people.get(openCardId); if(p) drawPath(p.data);
-  }
-  function drawPath(f){
-    if(!pathMap) return;
-    if(pathLayer){ pathLayer.forEach(l=>pathMap.removeLayer(l)); }
-    pathLayer=[];
-    const trail=(f.trail||[]).map(t=>[t[0],t[1]]);
-    if(trail.length>1){
-      const line=L.polyline(trail,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:3,opacity:.5,dashArray:'2 7'}).addTo(pathMap);
-      pathLayer.push(line);
-      pathMap.fitBounds(line.getBounds(),{padding:[16,16],maxZoom:16});
-    } else {
-      pathMap.setView([f.lat,f.lon],15);
-    }
-    const dot=L.circleMarker([f.lat,f.lon],{radius:6,color:'#fff',weight:2,fillColor:getComputedStyle(root).getPropertyValue('--ember').trim(),fillOpacity:1}).addTo(pathMap);
-    pathLayer.push(dot);
-  }
+  </div>
 
-  // ---------- groups (named, join by link or code, multiple) ----------
-  function makeCode(){const A='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let s='WAND-';for(let i=0;i<4;i++)s+=A[Math.floor(Math.random()*A.length)];return s;}
-  function grpInitial(name){ name=(name||'').trim(); return name?name[0].toUpperCase():'#'; }
+  <!-- ===== FRIENDS PAGE ===== -->
+  <div class="page" id="page-friends">
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn2" aria-label="Messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title">My Groups</div>
+      <button class="tb-icon" id="profBtn2"><span id="profIni2" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg2" alt="" style="display:none;"></button>
+    </div>
+    <div class="circle-box">
+      <div class="cb-top">
+        <div><h3>Your groups</h3><p>See friends who share a group with you. Join as many as you like.</p></div>
+      </div>
+      <div id="groupList" style="margin-bottom:14px;"></div>
+      <div class="cb-actions">
+        <button class="cb-act" id="createCircle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M18 8v6M15 11h6"/></svg>New group</button>
+        <button class="cb-act" id="joinCircle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 20v.01M17 20v.01"/></svg>Join group</button>
+      </div>
+    </div>
+    <div class="flist-head"><span class="lbl">Friends sharing with you</span><span class="cnt" id="onlineCount"><span class="d"></span>0 online</span></div>
+    <div id="friendList"></div>
+  </div>
 
-  function renderGroups(){
-    const html = myGroups.length
-      ? myGroups.map((g,i)=>`
-        <div class="grp-row" data-i="${i}">
-          <div class="gi">${grpInitial(g.name)}</div>
-          <div class="gt"><b>${esc(g.name)}</b><span>${esc(g.id)}</span></div>
-          <button class="gact share" data-act="share" title="Invite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg></button>
-          <button class="gact" data-act="leave" title="Leave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
-        </div>`).join('')
-      : `<div class="grp-empty">No groups yet. Create one or join with a link/code.</div>`;
-    ['groupList','groupListProfile'].forEach(id=>{ const box=document.getElementById(id); if(box) box.innerHTML=html; });
-    const desc=document.getElementById('circleDesc');
-    if(desc) desc.textContent = myGroups.length ? (myGroups.length+' group'+(myGroups.length>1?'s':'')+' — friends here can see you when you share.') : "You're not in any group yet.";
-    // wire row buttons
-    document.querySelectorAll('.grp-row').forEach(row=>{
-      const g=myGroups[row.dataset.i];
-      row.querySelectorAll('.gact').forEach(btn=>btn.onclick=()=>{
-        if(btn.dataset.act==='share') shareGroup(g);
-        else leaveGroup(g);
-      });
-    });
-  }
+  <!-- ===== TRIPS PAGE ===== -->
+  <div class="page" id="page-trips">
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title" id="tripsTitle">Trips</div>
+      <button class="tb-icon" id="profBtn3"><span id="profIni3" style="font-weight:700;color:var(--text-2)">?</span><img id="profImg3" alt="" style="display:none;"></button>
+    </div>
+    <div id="tripsIdle">
+      <div class="trips-hero">
+        <div class="trips-hero-ill">🏔️</div>
+        <h3>Ready for a new adventure?</h3>
+        <p>Record your trip and keep memories of everywhere you go.</p>
+        <button class="trip-start-btn" id="tripStartBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start a trip</button>
+      </div>
+      <div class="sec-head" style="margin-top:8px">Past trips</div>
+      <div id="tripHistory"></div>
+    </div>
+    <div id="tripsLive" style="display:none;">
+      <div class="trip-dial-wrap">
+        <div class="trip-live-badge"><span class="rdot"></span>LIVE</div>
+        <div class="trip-dial"><div class="trip-dial-num" id="tripSpeed">0</div><div class="trip-dial-unit">km/h</div><div class="trip-dial-cap">Current speed</div></div>
+      </div>
+      <div class="trip-live-stats">
+        <div class="tls"><div class="k">Distance</div><div class="v" id="tripDist">0.00</div><div class="u">km</div></div>
+        <div class="tls"><div class="k">Time</div><div class="v" id="tripTime">0:00</div><div class="u">&nbsp;</div></div>
+        <div class="tls"><div class="k">Avg speed</div><div class="v" id="tripAvg">0</div><div class="u">km/h</div></div>
+        <div class="tls"><div class="k">Top speed</div><div class="v" id="tripTop">0</div><div class="u">km/h</div></div>
+      </div>
+      <button class="trip-end-btn" id="tripEndBtn"><span class="sq"></span>End trip</button>
+    </div>
+  </div>
 
-  function inviteText(g){ return `Join my group "${g.name}" on The Wanderers' Map:\n${location.origin}/?join=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}\n\nOr open ${location.origin} and enter code ${g.id}`; }
-  function shareGroup(g){
-    const msg=inviteText(g);
-    if(navigator.share) navigator.share({title:g.name,text:msg}).catch(()=>{});
-    else if(navigator.clipboard){ navigator.clipboard.writeText(msg); toast('Invite copied'); }
-    else prompt('Share this invite:',msg);
-  }
+  <!-- ===== TRIP SUMMARY (mockup img 5) ===== -->
+  <div class="page" id="page-summary" style="z-index:1200;">
+    <div class="pagehead">
+      <button class="tb-icon" id="summaryBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+      <div class="title">Trip summary<div id="summaryDate" style="font-size:12px;font-weight:400;color:var(--text-2)"></div></div>
+      <div style="width:46px"></div>
+    </div>
+    <div style="overflow-y:auto;padding:12px 16px calc(30px + env(safe-area-inset-bottom));">
+      <div class="summary-map" id="summaryMap"></div>
+      <div class="summary-grid" id="summaryGrid"></div>
+      <button class="summary-btn primary" id="summaryReplay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Replay trip</button>
+      <button class="summary-btn" id="summaryShare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>Share with friends</button>
+    </div>
+  </div>
 
-  async function registerGroupName(id,name){
-    try{ await fetch('/group/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:id,name})}); }catch(_){}
-  }
-  async function lookupGroupName(id){
-    try{ const r=await fetch('/group/name?code='+encodeURIComponent(id)); const d=await r.json(); return (d&&d.name)||''; }catch(_){ return ''; }
-  }
+  <!-- ===== PROFILE PAGE ===== -->
+  <div class="page" id="page-profile">
+    <div class="pagehead">
+      <button class="tb-icon" id="msgBtn3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg></button>
+      <div class="title">Profile</div>
+      <div style="width:46px"></div>
+    </div>
+    <div class="prof-hero">
+      <button class="prof-av" id="profAv"><span class="ini" id="profAvIni">?</span><img id="profAvImg" alt="" style="display:none;"><span class="edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span></button>
+      <div class="prof-name" id="profName">Set your name</div>
+    </div>
+    <div class="prof-status"><input id="statusInput" placeholder="Add a status…" maxlength="40"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+    <div class="share-toggle">
+      <div class="st-l"><b id="stState"><span class="d"></span>Hidden</b><span id="stSub">You are not sharing your location.</span></div>
+      <button class="switch" id="shareSwitch" aria-label="Toggle sharing"></button>
+    </div>
+    <div class="sec-head">My Groups</div>
+    <div class="circle-box" style="margin-top:0">
+      <div class="cb-top"><div><h3>Groups</h3><p id="circleDesc">You're not in any group yet.</p></div></div>
+      <div id="groupListProfile" style="margin-bottom:14px;"></div>
+      <div class="cb-actions"><button class="cb-act" id="createCircle2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M18 8v6M15 11h6"/></svg>New group</button>
+        <button class="cb-act" id="joinCircle2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>Join</button></div>
+    </div>
+    <div class="sec-head">Settings</div>
+    <div class="setrow" id="themeRow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="sl">Theme</span><span class="sr" id="themeVal">Light</span></div>
+  </div>
 
-  function addGroup(id,name){
-    id=(id||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);
-    if(!id) return false;
-    if(myGroups.some(g=>g.id===id)){ toast('Already in that group'); return false; }
-    myGroups.push({id,name:(name||id).slice(0,40)}); saveGroups(); renderGroups();
-    return true;
-  }
+  <!-- ===== MESSAGES PAGE ===== -->
+  <div class="page" id="page-messages" style="z-index:1300;">
+    <!-- conversation list view -->
+    <div id="msgListView" style="display:flex;flex-direction:column;height:100%;">
+      <div class="pagehead">
+        <button class="tb-icon" id="msgListBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="title">Messages</div>
+        <div style="width:46px"></div>
+      </div>
+      <div id="msgThreadList" style="flex:1;overflow-y:auto;padding:8px 0 calc(20px + env(safe-area-inset-bottom));"></div>
+    </div>
+    <!-- single conversation view -->
+    <div id="msgChatView" style="display:none;flex-direction:column;height:100%;">
+      <div class="pagehead">
+        <button class="tb-icon" id="msgChatBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="title" id="msgChatName">Chat</div>
+        <div style="width:46px"></div>
+      </div>
+      <div id="msgBubbles" style="flex:1;overflow-y:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:8px;"></div>
+      <div class="msg-compose">
+        <input id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000">
+        <button id="msgSend" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg></button>
+      </div>
+    </div>
+  </div>
 
-  function createGroup(){
-    const name=prompt('Name your group (e.g. "Weekend crew"):');
-    if(name===null) return;
-    const nm=(name.trim()||'My group').slice(0,40);
-    const id=makeCode();
-    addGroup(id,nm);
-    registerGroupName(id,nm);
-    // offer the invite right away
-    setTimeout(()=>shareGroup({id,name:nm}),200);
-    reloadSoon();
-  }
+  <!-- ===== FRIEND DETAIL SHEET (mockup img 7) ===== -->
+  <div class="fsheet-scrim" id="fsheetScrim"></div>
+  <div class="fsheet" id="fsheet">
+    <div class="fsheet-grip"></div>
+    <button class="fsheet-close" id="fsheetClose" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+    <div class="fsheet-hero">
+      <div class="fsheet-av" id="fsheetAv"></div>
+      <div class="fsheet-name" id="fsheetName">Friend</div>
+      <div class="fsheet-status" id="fsheetStatus"></div>
+      <div class="fsheet-live" id="fsheetLive"><span id="fsheetMoving">Moving</span> · <span class="lv">Live</span></div>
+    </div>
+    <div class="fsheet-stats">
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg><b id="fssSpeed">0</b><span>km/h<br>Speed</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg><b id="fssDist">—</b><span>km<br>from me</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b id="fssEta">—</b><span>min<br>ETA</span></div>
+      <div class="fss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="16" height="8" rx="2"/><path d="M20 11v2"/></svg><b id="fssBatt">—</b><span>%<br>Battery</span></div>
+    </div>
+    <div class="fsheet-path">
+      <div class="fsheet-path-head"><span>Recent path</span><span id="fsheetPathTime">Last 15 min</span></div>
+      <div class="fsheet-path-map" id="fsheetPathMap"></div>
+    </div>
+    <div class="fsheet-actions">
+      <button class="fsheet-act primary" id="fsheetNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>Navigate</button>
+      <button class="fsheet-act" id="fsheetMsg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>Message</button>
+      <button class="fsheet-act" id="fsheetFocus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>Focus</button>
+    </div>
+  </div>
 
-  async function joinGroup(){
-    const raw=prompt('Enter a group code (or paste an invite link):');
-    if(raw===null) return;
-    let id=raw.trim(), name='';
-    // if they pasted a link, pull code + name out of it
-    const m=raw.match(/[?&]join=([^&\s]+)(?:&name=([^&\s]+))?/);
-    if(m){ id=decodeURIComponent(m[1]); if(m[2]) name=decodeURIComponent(m[2]); }
-    id=id.toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);
-    if(!id){ toast('No valid code found'); return; }
-    if(!name) name=await lookupGroupName(id);   // pick up the creator's name
-    if(addGroup(id,name||id)){ if(name) registerGroupName(id,name); reloadSoon(); }
-  }
+  <!-- ===== TAB BAR ===== -->
+  <div class="tabbar">
+    <button class="tab active" data-tab="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>Map<span class="dash"></span></button>
+    <button class="tab" data-tab="friends"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="8" r="2.5"/><path d="M17 14c2.2 0 4 1.8 4 4"/></svg>Friends<span class="dash"></span></button>
+    <button class="tab" data-tab="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Trips<span class="dash"></span></button>
+  </div>
 
-  function leaveGroup(g){
-    if(!confirm(`Leave "${g.name}"?`)) return;
-    myGroups=myGroups.filter(x=>x.id!==g.id); saveGroups(); renderGroups(); reloadSoon();
-  }
-
-  // group membership changes what you see, so a quick reload re-subscribes cleanly
-  let _reloadT=null;
-  function reloadSoon(){ clearTimeout(_reloadT); _reloadT=setTimeout(()=>location.reload(),500); }
-
-  ['createCircle','createCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=createGroup;});
-  ['joinCircle','joinCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=joinGroup;});
-
-  // auto-join from an invite link (?join=CODE&name=NAME)
-  (function handleInviteLink(){
-    const p=new URLSearchParams(location.search);
-    const j=p.get('join');
-    if(j){
-      const nm=p.get('name')||'';
-      if(addGroup(j,nm)){ if(nm) registerGroupName(j.toUpperCase(),nm); toast('Joined '+(nm||'group')); }
-      // clean the URL so a refresh doesn't rejoin
-      history.replaceState({},'',location.pathname);
-      reloadSoon();
-    }
-  })();
-
-  function toast(t){ /* minimal */ const d=document.createElement('div'); d.textContent=t; d.style.cssText='position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:#141210;color:#fff;padding:10px 18px;border-radius:20px;font:14px Inter;z-index:5000'; document.body.appendChild(d); setTimeout(()=>d.remove(),1600); }
-
-  // ---------- profile editing ----------
-  const statusInput=document.getElementById('statusInput');
-  statusInput.onchange=()=>{ myStatus=statusInput.value.trim(); localStorage.setItem('wm_status',myStatus); saveProfile(); };
-  document.getElementById('profName').onclick=()=>{ const n=prompt('Your name on the map:',myName); if(n&&n.trim()){ myName=n.trim().slice(0,20); localStorage.setItem('wm_name',myName); paintIdentity(); saveProfile(); } };
-  // photo picker
-  const fileInput=document.createElement('input'); fileInput.type='file'; fileInput.accept='image/*'; fileInput.style.display='none'; document.body.appendChild(fileInput);
-  document.getElementById('profAv').onclick=()=>fileInput.click();
-  fileInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const img=new Image();img.onload=()=>{const S=96,cv=document.createElement('canvas');cv.width=S;cv.height=S;const x=cv.getContext('2d');const side=Math.min(img.width,img.height);x.drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S,S);myPhoto=cv.toDataURL('image/jpeg',0.7);localStorage.setItem('wm_photo',myPhoto);photoCache.set(myId,myPhoto);paintIdentity();saveProfile();};img.src=rd.result;};rd.readAsDataURL(f);};
-  async function saveProfile(){ try{ await fetch('/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName,photo:myPhoto||null,status:myStatus})}); }catch(_){} }
-
-  // ---------- sharing ----------
-  let sharing=false, watch=null, lastSent=0;
-  const shareFab=document.getElementById('shareFab'), shareLabel=document.getElementById('shareLabel'), fabPulse=shareFab.querySelector('.pulse');
-  const shareSwitch=document.getElementById('shareSwitch'), stState=document.getElementById('stState'), stSub=document.getElementById('stSub');
-  function setSharingUI(on){
-    shareFab.classList.toggle('on',on); shareLabel.textContent=on?'Sharing':'Share location'; fabPulse.style.display=on?'block':'none';
-    shareSwitch.classList.toggle('on',on);
-    stState.innerHTML=on?'<span class="d"></span>Sharing':'<span class="d" style="background:#B9B0A2"></span>Hidden';
-    stSub.textContent=on?'Your location is visible to your circle.':'You are not sharing your location.';
-  }
-  function startShare(){
-    if(!myName){ showTab('profile'); toast('Set your name first'); return; }
-    if(!('geolocation'in navigator)){ toast('Location not available on this device'); return; }
-    if(!window.isSecureContext){ toast('Location needs the https:// address'); return; }
-    // First, an explicit one-shot request — this reliably shows the
-    // permission prompt. Only if it succeeds do we start the live watch.
-    toast('Requesting location…');
-    navigator.geolocation.getCurrentPosition(()=>{
-      sharing=true; setSharingUI(true); beginWatch();
-    }, err=>{
-      if(err.code===1) toast('Location is blocked. Enable it for this site in browser settings.');
-      else if(err.code===2) toast('Can’t find your location. Try outside or near a window.');
-      else toast('Location timed out. Tap Share to try again.');
-    },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
-  }
-  function beginWatch(){
-    let sentOnce=false;
-    watch=navigator.geolocation.watchPosition(pos=>{
-      const c=pos.coords,now=Date.now();
-      if(c.accuracy>60&&sentOnce) return;
-      if(now-lastSent<800) return; lastSent=now; sentOnce=true;
-      fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:groupIds(),
-        gspeed:(c.speed>=0)?c.speed:null,heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
-        battery:window._batt??null,status:myStatus })}).catch(()=>{});
-    },err=>{
-      if(err.code===1){ toast('Location permission lost'); sharing=false; setSharingUI(false); }
-    },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
-    if(navigator.getBattery)navigator.getBattery().then(b=>{window._batt=Math.round(b.level*100);b.addEventListener('levelchange',()=>window._batt=Math.round(b.level*100));});
-  }
-  function stopShare(){
-    sharing=false; setSharingUI(false);
-    if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null;}
-    fetch('/leave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId})}).catch(()=>{});
-  }
-  shareFab.onclick=()=>sharing?stopShare():startShare();
-  shareSwitch.onclick=()=>sharing?stopShare():startShare();
-  setSharingUI(false);
-
-  // ---------- trips ----------
-  let tripActive=false, tripTimer=null, summaryMap=null, summaryLine=null;
-  const fmtDur=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return (h>0?h+':'+String(m).padStart(2,'0'):m)+':'+String(ss).padStart(2,'0');};
-  const fmtDurHMS=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');};
-
-  document.getElementById('tripStartBtn').onclick=()=>{ if(window._startFreeTrip) window._startFreeTrip(); else startTrip(); };
-  document.getElementById('tripEndBtn').onclick=endTrip;
-  ['profBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
-  ['msgBtn4'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
-  document.getElementById('summaryBack').onclick=()=>showTab('trips');
-
-  async function startTrip(){
-    try{
-      // a trip records on top of sharing — turn sharing on if it's off,
-      // but don't let it block the trip if permission is still pending
-      if(!sharing){ try{ startShare(); }catch(_){} }
-      const r=await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
-      if(!r.ok) throw new Error('server '+r.status);
-      const d=await r.json();
-      if(!d.ok) throw new Error(d.error||'start failed');
-      tripActive=true;
-      document.getElementById('tripsIdle').style.display='none';
-      document.getElementById('tripsLive').style.display='block';
-      document.getElementById('tripsTitle').textContent='Recording trip';
-      tripTimer=setInterval(pollTrip,1500); pollTrip();
-    }catch(e){ toast('Could not start trip: '+e.message); }
-  }
-  async function pollTrip(){
-    try{
-      const r=await fetch('/trip/live?id='+encodeURIComponent(myId),{cache:'no-store'});
-      const d=await r.json(); if(!d.active) return;
-      const me=people.get(myId);
-      document.getElementById('tripSpeed').textContent=Math.round((me&&me.data.speed)||0);
-      document.getElementById('tripDist').textContent=(d.distanceM/1000).toFixed(2);
-      document.getElementById('tripTime').textContent=fmtDur(d.durationSec);
-      document.getElementById('tripAvg').textContent=Math.round(d.avgKmh);
-      document.getElementById('tripTop').textContent=Math.round(d.topKmh);
-    }catch(_){}
-  }
-  async function endTrip(){
-    clearInterval(tripTimer);
-    try{
-      const r=await fetch('/trip/end',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})});
-      const d=await r.json();
-      tripActive=false;
-      document.getElementById('tripsLive').style.display='none';
-      document.getElementById('tripsIdle').style.display='block';
-      document.getElementById('tripsTitle').textContent='Trips';
-      loadHistory();
-      if(d.trip) showSummary(d.trip);
-    }catch(_){ toast('Could not end trip'); }
-  }
-
-  function showSummary(t){
-    showTab('summary');
-    const dt=new Date(t.startedAt);
-    document.getElementById('summaryDate').textContent=dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})+' · '+dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
-    const cell=(icon,k,v)=>`<div class="summary-cell"><div class="k">${icon} ${k}</div><div class="v">${v}</div></div>`;
-    document.getElementById('summaryGrid').innerHTML=
-      cell('📍','Distance',`${(t.distanceM/1000).toFixed(2)}<small> km</small>`)+
-      cell('⏱','Total time',fmtDurHMS(t.durationSec))+
-      cell('⚡','Top speed',`${Math.round(t.topKmh)}<small> km/h</small>`)+
-      cell('📊','Avg speed',`${Math.round(t.avgKmh)}<small> km/h</small>`)+
-      cell('🐢','Lowest moving',`${Math.round(t.lowKmh)}<small> km/h</small>`)+
-      cell('▶','Moving time',fmtDurHMS(t.movingSec));
-    setTimeout(()=>drawSummaryMap(t),300);
-    document.getElementById('summaryShare').onclick=()=>{
-      const txt=`My trip: ${(t.distanceM/1000).toFixed(1)}km, top ${Math.round(t.topKmh)}km/h, ${fmtDur(t.durationSec)} — on The Wanderers' Map`;
-      if(navigator.share)navigator.share({text:txt}).catch(()=>{}); else{navigator.clipboard&&navigator.clipboard.writeText(txt);toast('Copied');}
-    };
-    document.getElementById('summaryReplay').onclick=()=>toast('Replay — coming soon');
-  }
-  function drawSummaryMap(t){
-    const route=(t.route||[]).map(p=>[p[0],p[1]]);
-    if(!summaryMap){
-      summaryMap=L.map('summaryMap',{zoomControl:false,attributionControl:false});
-      const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[theme].url,{maxZoom:19,subdomains:TILES[theme].sub}).addTo(summaryMap);
-    }
-    summaryMap.invalidateSize();
-    if(summaryLine)summaryLine.forEach(l=>summaryMap.removeLayer(l)); summaryLine=[];
-    if(route.length>1){
-      const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:4}).addTo(summaryMap);
-      summaryLine.push(line);
-      summaryLine.push(L.circleMarker(route[0],{radius:7,color:'#fff',weight:2,fillColor:'#3FB950',fillOpacity:1}).addTo(summaryMap));
-      summaryLine.push(L.circleMarker(route[route.length-1],{radius:7,color:'#fff',weight:2,fillColor:getComputedStyle(root).getPropertyValue('--ember').trim(),fillOpacity:1}).addTo(summaryMap));
-      summaryMap.fitBounds(line.getBounds(),{padding:[24,24]});
-    } else { summaryMap.setView(route[0]||[41,71.67],14); }
-  }
-
-  async function loadHistory(){
-    try{
-      const r=await fetch('/trip/list?id='+encodeURIComponent(myId),{cache:'no-store'});
-      const d=await r.json(); const box=document.getElementById('tripHistory');
-      if(!d.trips||!d.trips.length){ box.innerHTML=`<div class="empty" style="padding:20px">No trips yet. Start one above!</div>`; return; }
-      box.innerHTML=d.trips.map((t,i)=>{
-        const dt=new Date(t.startedAt);
-        return `<div class="trip-card" data-i="${i}">
-          <div class="trip-card-map" id="thmap-${i}"></div>
-          <div class="trip-card-info">
-            <div class="d">${dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</div>
-            <div class="t">${dt.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</div>
-            <div class="trip-card-nums">
-              <div><b>${(t.distanceM/1000).toFixed(1)}</b><span>km</span></div>
-              <div><b>${fmtDur(t.durationSec)}</b><span>time</span></div>
-              <div><b>${Math.round(t.topKmh)}</b><span>top</span></div>
-            </div>
-          </div></div>`;
-      }).join('');
-      // mini maps + click
-      d.trips.forEach((t,i)=>{
-        const card=box.querySelector(`[data-i="${i}"]`);
-        if(card) card.onclick=()=>showSummary(t);
-        const route=(t.route||[]).map(p=>[p[0],p[1]]);
-        if(route.length>1){
-          const mm=L.map('thmap-'+i,{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false});
-          const theme=root.getAttribute('data-theme')==='dark'?'dark':'light';
-          L.tileLayer(TILES[theme].url,{maxZoom:17,subdomains:TILES[theme].sub}).addTo(mm);
-          const line=L.polyline(route,{color:getComputedStyle(root).getPropertyValue('--ember').trim(),weight:2.5}).addTo(mm);
-          setTimeout(()=>{mm.invalidateSize();mm.fitBounds(line.getBounds(),{padding:[6,6]});},100);
-        }
-      });
-    }catch(_){}
-  }
-  loadHistory();
-
-  // ================= NAVIGATION (free: Nominatim + OSRM) =================
-  let destination=null, destMarker=null, previewMap=null, previewLines=[], routeData={}, curMode='driving', chosenIdx=0;
-  let navigating=false, freeRoaming=false, navRouteLine=null, navSteps=[], navStepIdx=0;
-  const $=id=>document.getElementById(id);
-  function getEmber(){ return getComputedStyle(root).getPropertyValue('--ember').trim()||'#E8562A'; }
-  function clockETA(mins){ const t=new Date(Date.now()+mins*60000); return t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
-  const searchInput=$('search'), searchResults=$('searchResults'), routeSheet=$('routeSheet');
-  const navPanel=$('navPanel'), freeBadge=$('freeBadge'), gpsChip=$('gpsChip');
-
-  let searchTimer=null;
-  searchInput.addEventListener('focus',()=>{ document.body.classList.add('searching'); if(!searchInput.value.trim()) showSavedPlaces(); });
-  searchInput.addEventListener('input',()=>{
-    const q=searchInput.value.trim();
-    $('searchX').style.display=q?'block':'none';
-    clearTimeout(searchTimer);
-    if(q.length<2){ showSavedPlaces(); return; }
-    searchTimer=setTimeout(()=>doSearch(q),380);
-  });
-  $('searchX').onclick=()=>{ searchInput.value=''; $('searchX').style.display='none'; searchResults.classList.remove('on'); };
-  $('searchCancel').onclick=()=>{ searchInput.value=''; searchInput.blur(); $('searchX').style.display='none'; searchResults.classList.remove('on'); document.body.classList.remove('searching'); };
-  async function doSearch(q){
-    searchResults.innerHTML=`<div class="sr-empty">Searching…</div>`; searchResults.classList.add('on');
-    const me=myPos();
-    try{
-      // Pass 1: strongly prefer nearby results (bounded viewbox around me)
-      let d=[];
-      if(me){
-        const r=0.6; // ~60km box
-        const vb=`&viewbox=${me[1]-r},${me[0]+r},${me[1]+r},${me[0]-r}&bounded=1`;
-        d=await nomFetch(q,vb,10);
-      }
-      // Pass 2: if too few local hits, widen to unbounded (still biased near me)
-      if(d.length<3){
-        const vb=me?`&viewbox=${me[1]-4},${me[0]+4},${me[1]+4},${me[0]-4}&bounded=0`:'';
-        const wide=await nomFetch(q,vb,10);
-        // merge, dedupe by place_id
-        const seen=new Set(d.map(x=>x.place_id));
-        wide.forEach(x=>{ if(!seen.has(x.place_id)){ d.push(x); seen.add(x.place_id); } });
-      }
-      if(!d.length){ searchResults.innerHTML=`<div class="sr-empty">No places found near you</div>`; return; }
-      // sort by distance from me (closest first) — this is the Google-like ranking
-      if(me){
-        d.forEach(x=>{ x._dist=metres(me[0],me[1],parseFloat(x.lat),parseFloat(x.lon)); });
-        d.sort((a,b)=>a._dist-b._dist);
-      }
-      d=d.slice(0,7);
-      searchResults.innerHTML=d.map((x,i)=>{
-        const name=x.display_name.split(',')[0];
-        const rest=x.display_name.split(',').slice(1,3).join(',').trim();
-        const dist=x._dist!=null?(x._dist<1000?Math.round(x._dist)+' m':(x._dist/1000).toFixed(1)+' km'):'';
-        return `<div class="sr-item" data-i="${i}"><svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" opacity=".9"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg><div class="t"><b>${esc(name)}</b><span>${esc(rest)}</span></div>${dist?`<span class="sr-dist">${dist}</span>`:''}</div>`;
-      }).join('');
-      searchResults.querySelectorAll('.sr-item').forEach(el=>el.onclick=()=>{
-        const x=d[el.dataset.i];
-        document.body.classList.remove('searching'); searchResults.classList.remove('on');
-        openRoutePreview(parseFloat(x.lat),parseFloat(x.lon),x.display_name.split(',')[0]);
-      });
-    }catch(e){ searchResults.innerHTML=`<div class="sr-empty">Search unavailable — check connection</div>`; }
-  }
-  async function nomFetch(q,vb,limit){
-    const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${limit}&addressdetails=1${vb||''}`;
-    const r=await fetch(url,{headers:{'Accept':'application/json'}});
-    return await r.json();
-  }
-
-  map.on('click',e=>{ if(navigating||freeRoaming) return; openRoutePreview(e.latlng.lat,e.latlng.lng,'Dropped pin'); });
-
-  function openRoutePreview(lat,lon,name){
-    destination={lat,lon,name}; $('rhDest').textContent=name; routeSheet.classList.add('on');
-    if(!previewMap){
-      previewMap=L.map('routePreviewMap',{zoomControl:false,attributionControl:false});
-      const th=root.getAttribute('data-theme')==='dark'?'dark':'light';
-      L.tileLayer(TILES[th].url,{maxZoom:19,subdomains:TILES[th].sub}).addTo(previewMap);
-    }
-    setTimeout(()=>previewMap.invalidateSize(),120);
-    routeData={}; curMode='driving';
-    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('sel',b.dataset.mode==='driving'));
-    fetchAllModes();
-  }
-  $('rhBack').onclick=closeRoutePreview;
-  function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
-
-  // ================= SAVED PLACES =================
-  let savedPlaces=[];
-  const placeIcon=label=>{
-    if(label==='home') return '<path d="M3 11.5 12 4l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>';
-    if(label==='work') return '<path d="M4 7h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm5-3h6a1 1 0 0 1 1 1v2H8V5a1 1 0 0 1 1-1z"/>';
-    return '<path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.8 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/>';
-  };
-  async function loadSavedPlaces(){
-    try{ const r=await fetch('/places/list?ownerId='+encodeURIComponent(myId),{cache:'no-store'});
-      const d=await r.json(); if(d.ok) savedPlaces=d.places||[]; }catch(_){}
-    return savedPlaces;
-  }
-  async function showSavedPlaces(){
-    searchResults.classList.add('on');
-    if(!savedPlaces.length) await loadSavedPlaces();
-    if(!savedPlaces.length){ searchResults.innerHTML=`<div class="sr-empty">No saved places yet.<br>Pick a destination and tap Pin to save it.</div>`; return; }
-    searchResults.innerHTML=savedPlaces.map((p,i)=>`
-      <div class="sr-item" data-i="${i}">
-        <svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor">${placeIcon(p.label)}</svg>
-        <div class="t"><b>${esc(p.name)}</b><span>${p.label==='home'?'Home':p.label==='work'?'Work':'Saved place'}</span></div>
-        <svg class="sr-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-      </div>`).join('') +
-      `<div class="sr-empty" style="border-top:1px solid var(--line)">Tap to route · long-press to remove</div>`;
-    searchResults.querySelectorAll('.sr-item').forEach(el=>{
-      const p=savedPlaces[el.dataset.i];
-      el.onclick=()=>{ document.body.classList.remove('searching'); searchResults.classList.remove('on'); searchInput.value=''; openRoutePreview(p.lat,p.lon,p.name); };
-      let press; el.addEventListener('touchstart',()=>{ press=setTimeout(()=>removePlace(p),600); },{passive:true});
-      el.addEventListener('touchend',()=>clearTimeout(press));
-      el.addEventListener('contextmenu',ev=>{ ev.preventDefault(); removePlace(p); });
-    });
-  }
-  async function removePlace(p){
-    if(!confirm('Remove "'+p.name+'" from saved places?')) return;
-    try{ await fetch('/places/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ownerId:myId,id:p._id})});
-      savedPlaces=savedPlaces.filter(x=>x._id!==p._id); showSavedPlaces(); toast('Removed'); }catch(_){ toast('Could not remove'); }
-  }
-  async function savePinnedPlace(){
-    if(!destination){ toast('Pick a destination first'); return; }
-    const name=prompt('Save this place as:', destination.name||'Saved place');
-    if(name===null) return;
-    // quick label guess from the name
-    let label='star'; const low=name.toLowerCase();
-    if(low.includes('home')||low.includes('uy')) label='home';
-    else if(low.includes('work')||low.includes('ish')||low.includes('office')) label='work';
-    try{
-      const r=await fetch('/places/save',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ownerId:myId,name:name.trim()||'Saved place',label,lat:destination.lat,lon:destination.lon})});
-      const d=await r.json();
-      if(d.ok){ savedPlaces.unshift(d.place); toast('Saved ★'); }
-      else toast(d.error||'Could not save');
-    }catch(_){ toast('Could not save'); }
-  }
-  loadSavedPlaces();
-
-  const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
-  // realistic average speeds for a mid-size Uzbek city (km/h) — accounts for
-  // lights, turns, congestion; free routing has no live traffic so we estimate.
-  const REAL_SPEED={driving:26,cycling:13,walking:4.7};
-  function fetchAllModes(){
-    const me=myPos();
-    if(!me){
-      $('rmTag').textContent='Turn on location sharing to get routes';
-      if(!sharing){ startShare(); toast('Turn on sharing to route from your location'); }
-      return;
-    }
-    $('rmTag').textContent='Finding routes…';
-    let anyOk=false, done=0;
-    for(const m of ['driving','cycling','walking']){
-      fetchMode(m,me).then(routes=>{
-        done++;
-        if(routes&&routes.length){
-          anyOk=true;
-          // Use the road DISTANCE from routing (reliable), but compute TIME
-          // ourselves from realistic mode speeds — the free server's own
-          // durations are optimistic (no traffic) and often identical across modes.
-          routes.forEach(rt=>{ rt._realMin=Math.max(1,Math.round((rt.distance/1000)/REAL_SPEED[m]*60)); });
-          setModeTime(m,routes[0]._realMin);
-          routeData[m]=routes;
-          if(m===curMode) renderRoutes();
-        }
-        if(done===3 && !anyOk){ useStraightFallback(me); }
-      });
-    }
-  }
-  function setModeTime(m,mins){
-    if(m==='driving')$('modeDriveTime').textContent=mins+' min';
-    if(m==='cycling')$('modeBikeTime').textContent=mins+' min';
-    if(m==='walking')$('modeWalkTime').textContent=mins+' min';
-  }
-  function useStraightFallback(me){
-    const distM=metres(me[0],me[1],destination.lat,destination.lon)*1.3; // road factor
-    for(const m of ['driving','cycling','walking']){
-      const mins=Math.max(1,Math.round((distM/1000)/REAL_SPEED[m]*60));
-      const fake=[{duration:mins*60,distance:distM,_realMin:mins,geometry:{coordinates:[[me[1],me[0]],[destination.lon,destination.lat]]},legs:[{steps:[]}],_straight:true}];
-      routeData[m]=fake; setModeTime(m,mins);
-    }
-    $('rmTag').textContent='Estimated (routing server busy)';
-    renderRoutes();
-  }
-  async function fetchMode(mode,me){
-    // Use the profile-correct server FIRST so bike/walk differ from car.
-    const profile=mode==='driving'?'car':mode==='cycling'?'bike':'foot';
-    const paths=[
-      `https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`,
-      `https://router.project-osrm.org/route/v1/driving/${me[1]},${me[0]};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=3`
-    ];
-    for(const url of paths){
-      try{
-        const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),7000);
-        const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(to);
-        const d=await r.json();
-        if(d.code==='Ok'&&d.routes&&d.routes.length){ console.log('[route]',mode,d.routes.length+' route(s) via',url.split('/')[2]); return d.routes.slice(0,3); }
-      }catch(e){ console.log('[route]',mode,'failed',url.split('/')[2],e.message); }
-    }
-    return null;
-  }
-  function renderRoutes(){
-    const routes=routeData[curMode]; if(!routes||!previewMap) return;
-    chosenIdx=0;
-    previewLines.forEach(l=>previewMap.removeLayer(l)); previewLines=[];
-    routes.forEach((rt,i)=>{
-      const coords=rt.geometry.coordinates.map(c=>[c[1],c[0]]);
-      const line=L.polyline(coords,{color:i===0?getEmber():'#9A9A9A',weight:i===0?7:5,opacity:i===0?.95:.5}).addTo(previewMap);
-      line.on('click',()=>selectRoute(i)); previewLines.push(line);
-    });
-    const me=myPos();
-    previewLines.push(L.marker([destination.lat,destination.lon],{icon:L.divIcon({className:'dest-pin',iconSize:[30,30],html:`<svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" fill="${getEmber()}" stroke="white" stroke-width="1.5"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg>`})}).addTo(previewMap));
-    if(me) previewLines.push(L.circleMarker(me,{radius:8,color:'#fff',weight:3,fillColor:getEmber(),fillOpacity:1}).addTo(previewMap));
-    previewMap.fitBounds(L.latLngBounds(routes[0].geometry.coordinates.map(c=>[c[1],c[0]])),{padding:[50,50]});
-    selectRoute(0);
-  }
-  function selectRoute(i){
-    const routes=routeData[curMode]; if(!routes) return; chosenIdx=i;
-    previewLines.forEach((l,j)=>{ if(l.setStyle&&j<routes.length) l.setStyle({color:j===i?getEmber():'#9A9A9A',weight:j===i?7:5,opacity:j===i?.95:.5}); });
-    const rt=routes[i];
-    $('rmTime').textContent=(rt._realMin||Math.round(rt.duration/60))+' min';
-    $('rmDist').textContent='('+(rt.distance/1000).toFixed(1)+' km)';
-    $('rmTag').textContent=i===0?'Fastest route':'Alternative route';
-    const others=routes.map((r,j)=>({r,j})).filter(o=>o.j!==i);
-    $('otherLabel').style.display=others.length?'block':'none';
-    $('otherRoutes').innerHTML=others.map(o=>`<div class="other-route" data-i="${o.j}"><b>${o.r._realMin||Math.round(o.r.duration/60)} min</b><span>(${(o.r.distance/1000).toFixed(1)} km)</span></div>`).join('');
-    $('otherRoutes').querySelectorAll('.other-route').forEach(el=>el.onclick=()=>selectRoute(+el.dataset.i));
-  }
-  document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>{
-    curMode=b.dataset.mode;
-    document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('sel',x===b));
-    if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;renderRoutes();}});
-  });
-  $('raStart').onclick=()=>startNavigation();
-  $('raPin').onclick=()=>savePinnedPlace();
-  $('raSteps').onclick=()=>{ const routes=routeData[curMode]; if(routes&&routes[chosenIdx]) showSteps(routes[chosenIdx]); };
-
-  function startNavigation(){
-    if(!sharing) startShare();
-    const routes=routeData[curMode]; const rt=routes&&routes[chosenIdx];
-    navigating=true; followMode=true;
-    document.body.classList.add('navigating');
-    routeSheet.classList.remove('on'); navPanel.classList.add('on');
-    $('navTurn').style.display=rt?'block':'none';
-    $('nsEtaLabel').textContent='ETA'; $('nsDistLabel').textContent='Distance';
-    if(rt){
-      if(navRouteLine)map.removeLayer(navRouteLine);
-      navRouteLine=L.polyline(rt.geometry.coordinates.map(c=>[c[1],c[0]]),{color:getEmber(),weight:7,opacity:.9}).addTo(map);
-      navSteps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[]; navStepIdx=0;
-      $('nsEta').textContent=clockETA(rt._realMin||Math.round(rt.duration/60));
-      $('nsDist').textContent=(rt.distance/1000).toFixed(1);
-      updateTurn();
-    }
-    startTripRecord();
-    const me=myPos(); if(me) map.setView(me,17,{animate:true});
-  }
-  function updateTurn(){
-    if(!navSteps.length) return;
-    const step=navSteps[navStepIdx]; if(!step) return; const man=step.maneuver||{};
-    $('ntDist').innerHTML=(step.distance>=1000?(step.distance/1000).toFixed(1)+'<span> km</span>':Math.round(step.distance)+'<span> m</span>');
-    $('ntText').textContent=turnText(man,step.name);
-    const nxt=navSteps[navStepIdx+1];
-    $('ntThen').innerHTML=nxt?('Then · '+turnText(nxt.maneuver||{},nxt.name)):'';
-    $('ntIcon').innerHTML=turnIcon(man);
-  }
-  function turnText(man,road){
-    const t=man.type||'', mod=man.modifier||'';
-    if(t==='arrive')return 'Arrive at destination';
-    if(t==='depart')return 'Head out'+(road?' on '+road:'');
-    const dir=mod.includes('left')?'left':mod.includes('right')?'right':'straight';
-    if(t==='roundabout'||t==='rotary')return 'Take the roundabout'+(road?' to '+road:'');
-    if(dir==='straight')return 'Continue'+(road?' on '+road:'');
-    return 'Turn '+dir+(road?' onto '+road:'');
-  }
-  function turnIcon(man){
-    const mod=(man.modifier||'');
-    if((man.type||'')==='arrive')return '<path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/>';
-    if(mod.includes('right'))return '<path d="M9 18V9a3 3 0 0 1 3-3h6M15 3l3 3-3 3"/>';
-    if(mod.includes('left'))return '<path d="M15 18V9a3 3 0 0 0-3-3H6M9 3 6 6l3 3"/>';
-    return '<path d="M12 20V5M6 11l6-6 6 6"/>';
-  }
-  $('navEnd').onclick=stopNavigation;
-  $('ntVoice').onclick=()=>toast('Voice guidance — coming soon');
-
-  $('freeTripBtn').onclick=startFreeRoam;
-  window._startFreeTrip=()=>{ showTab('map'); startFreeRoam(); };
-  function startFreeRoam(){
-    if(!sharing) startShare();
-    freeRoaming=true; followMode=true;
-    document.body.classList.add('freeroam');
-    routeSheet.classList.remove('on');
-    freeBadge.classList.add('on'); gpsChip.classList.add('on'); navPanel.classList.add('on');
-    $('navTurn').style.display='none';
-    $('nsEtaLabel').textContent='Time'; $('nsEta').textContent='0:00';
-    $('nsDistLabel').textContent='Distance'; $('nsDist').textContent='0.0';
-    startTripRecord();
-    const me=myPos(); if(me) map.setView(me,17,{animate:true});
-  }
-
-  let navTimer=null;
-  async function startTripRecord(){
-    try{ await fetch('/trip/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})}); tripActive=true; }catch(_){}
-    navTimer=setInterval(updateNavStats,1000); updateNavStats();
-  }
-  async function updateNavStats(){
-    const me=people.get(myId);
-    $('nsSpeed').textContent=Math.round((me&&me.data.speed)||0);
-    try{
-      const r=await fetch('/trip/live?id='+encodeURIComponent(myId),{cache:'no-store'}); const d=await r.json();
-      if(d.active&&freeRoaming){ $('nsEta').textContent=fmtDur(d.durationSec); $('nsDist').textContent=(d.distanceM/1000).toFixed(1); }
-    }catch(_){}
-  }
-  async function stopNavigation(){
-    clearInterval(navTimer);
-    navigating=false; freeRoaming=false; followMode=false;
-    document.body.classList.remove('navigating','freeroam');
-    navPanel.classList.remove('on'); freeBadge.classList.remove('on'); gpsChip.classList.remove('on');
-    if(navRouteLine){map.removeLayer(navRouteLine);navRouteLine=null;}
-    if(destMarker){map.removeLayer(destMarker);destMarker=null;}
-    destination=null;
-    if(tripActive){ try{ const r=await fetch('/trip/end',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName})}); const d=await r.json(); tripActive=false; loadHistory(); if(d.trip) showSummary(d.trip); }catch(_){} }
-  }
-  function showSteps(rt){
-    const steps=(rt.legs&&rt.legs[0]&&rt.legs[0].steps)||[];
-    if(!steps.length){ toast('No turn steps available'); return; }
-    alert('Directions:\n\n'+steps.map(s=>'• '+turnText(s.maneuver||{},s.name)+(s.distance?` (${s.distance>=1000?(s.distance/1000).toFixed(1)+'km':Math.round(s.distance)+'m'})`:'')).join('\n'));
-  }
-
-  $('recenterBtn').onclick=()=>{ const me=myPos(); if(me){ followMode=true; map.setView(me,navigating||freeRoaming?17:16,{animate:true}); } };
-  $('layersBtn').onclick=()=>{ const next=root.getAttribute('data-theme')==='dark'?'light':'dark'; root.setAttribute('data-theme',next); localStorage.setItem('wm_theme',next); applyThemeUI(); };
-  map.on('dragstart',()=>{ if(navigating||freeRoaming) followMode=false; });
-  window._followTick=()=>{ if(followMode){ const me=people.get(myId); if(me) map.panTo([me.lat,me.lon],{animate:true,duration:.5}); } };
-
-  // ================= MESSAGES =================
-  let chatWith=null, chatName='', msgUnread=0, _fallbackKnown=0;
-  const nameFor=id=>{ const p=people.get(id); return (p&&p.data&&p.data.name)||'Wanderer'; };
-  function avatarHTML(id,name){ const p=photoCache.get(id); return p?`<img src="${p}">`:`<div class="ini">${initials(name)}</div>`; }
-
-  function setMsgBadge(n){
-    msgUnread=n;
-    ['msgBadge'].forEach(id=>{ const e=document.getElementById(id); if(!e)return;
-      if(n>0){ e.textContent=n>99?'99+':n; e.style.display='flex'; } else e.style.display='none'; });
-  }
-  async function refreshMsgBadge(){
-    try{ const r=await fetch('/msg/overview?me='+encodeURIComponent(myId),{cache:'no-store'});
-      const d=await r.json(); if(d.ok) setMsgBadge(d.unread||0); }catch(_){}
-  }
-
-  const msgListView=document.getElementById('msgListView');
-  const msgChatView=document.getElementById('msgChatView');
-  function openMessages(){
-    showTab('messages');
-    msgChatView.style.display='none'; msgListView.style.display='flex';
-    loadThreadList();
-  }
-  document.getElementById('msgListBack').onclick=()=>showTab('map');
-  document.getElementById('msgChatBack').onclick=()=>openMessages();
-
-  async function loadThreadList(){
-    const box=document.getElementById('msgThreadList');
-    if(!box){ console.log('[msg] msgThreadList element missing'); return; }
-    box.innerHTML=`<div class="msg-empty">Loading…</div>`;
-    let d;
-    try{
-      const r=await fetch('/msg/overview?me='+encodeURIComponent(myId),{cache:'no-store'});
-      d=await r.json();
-    }catch(e){ console.log('[msg] overview fetch failed',e.message); box.innerHTML=`<div class="msg-empty">Couldn't load messages.<br>Check your connection.</div>`; return; }
-    console.log('[msg] overview:',d);
-    setMsgBadge(d.unread||0);
-    const threads=(d.threads||[]);
-    if(!threads.length){ box.innerHTML=`<div class="msg-empty">No conversations yet.<br>Open a friend and tap Message to start chatting.</div>`; return; }
-    // Render immediately with whatever names/photos we already have,
-    // so the list ALWAYS appears; enrich with fetched names/photos after.
-    const paint=(profs)=>{
-      box.innerHTML=threads.map(t=>{
-        const nm=(profs&&profs[t.with])||nameFor(t.with);
-        const mine=t.lastFrom===myId;
-        const preview=(mine?'You: ':'')+(t.lastText||'');
-        return `<div class="msg-row ${t.unread?'unread':''}" data-id="${t.with}" data-name="${esc(nm)}">
-          <div class="mr-av">${avatarHTML(t.with,nm)}</div>
-          <div class="mr-body">
-            <div class="mr-top"><span class="mr-name">${esc(nm)}</span><span class="mr-time">${shortTime(t.lastTs)}</span></div>
-            <div class="mr-last">${esc(preview)}</div>
-          </div>
-          ${t.unread?`<span class="mr-badge">${t.unread}</span>`:''}
-        </div>`;
-      }).join('');
-      box.querySelectorAll('.msg-row').forEach(el=>el.onclick=()=>openChat(el.dataset.id,el.dataset.name));
-    };
-    paint(null);                      // show the list right away
-    try{
-      await ensurePhotos(threads.map(t=>t.with));
-      const profs=await namesFor(threads.map(t=>t.with));
-      paint(profs);                   // re-paint with real names + photos
-    }catch(e){ console.log('[msg] enrich failed',e.message); /* list already shown */ }
-  }
-
-  // fetch display names for ids we might not have live (uses /profile/many)
-  async function namesFor(ids){
-    const out={};
-    ids.forEach(id=>{ const p=people.get(id); if(p&&p.name) out[id]=p.name; });
-    const missing=ids.filter(id=>!out[id]);
-    if(missing.length){
-      try{ const r=await fetch('/profile/many?ids='+encodeURIComponent(missing.join(',')));
-        const d=await r.json(); if(d.ok&&d.profiles) for(const id in d.profiles) out[id]=d.profiles[id].name||'Wanderer'; }catch(_){}
-    }
-    return out;
-  }
-
-  async function openChat(id,name){
-    if(!id||id===myId) return;
-    chatWith=id; chatName=name||nameFor(id); _fallbackKnown=0;
-    showTab('messages');
-    msgListView.style.display='none'; msgChatView.style.display='flex';
-    document.getElementById('msgChatName').textContent=chatName;
-    const bubbles=document.getElementById('msgBubbles');
-    bubbles.innerHTML=`<div class="msg-empty">Loading…</div>`;
-    await ensurePhotos([id]);
-    try{
-      const r=await fetch(`/msg/thread?me=${encodeURIComponent(myId)}&with=${encodeURIComponent(id)}`,{cache:'no-store'});
-      const d=await r.json();
-      const list=d.messages||[];
-      renderBubbles(list);
-      _fallbackKnown=list.length;   // baseline so the poll only reacts to NEW messages
-    }catch(e){ bubbles.innerHTML=`<div class="msg-empty">Couldn't load this chat.</div>`; }
-    // mark read + clear badge
-    try{ await fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:id})}); }catch(_){}
-    refreshMsgBadge();
-    setTimeout(()=>document.getElementById('msgInput').focus(),120);
-  }
-
-  function renderBubbles(list){
-    const box=document.getElementById('msgBubbles');
-    if(!list.length){ box.innerHTML=`<div class="msg-empty">Say hello 👋</div>`; return; }
-    let html='', lastDay='';
-    list.forEach(m=>{
-      const day=dayLabel(m.ts);
-      if(day!==lastDay){ html+=`<div class="msg-daysep">${day}</div>`; lastDay=day; }
-      const mine=m.from===myId;
-      html+=`<div class="bubble ${mine?'me':'them'}">${esc(m.text)}<div class="bt">${shortTime(m.ts)}</div></div>`;
-    });
-    box.innerHTML=html;
-    box.scrollTop=box.scrollHeight;
-  }
-
-  function appendBubble(m){
-    const box=document.getElementById('msgBubbles');
-    const empty=box.querySelector('.msg-empty'); if(empty) box.innerHTML='';
-    const mine=m.from===myId;
-    const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
-    const div=document.createElement('div');
-    div.className='bubble '+(mine?'me':'them');
-    div.innerHTML=esc(m.text)+`<div class="bt">${shortTime(m.ts)}</div>`;
-    box.appendChild(div);
-    if(near||mine) box.scrollTop=box.scrollHeight;
-  }
-
-  async function sendMsg(){
-    const input=document.getElementById('msgInput');
-    const text=input.value.trim();
-    if(!text||!chatWith) return;
-    input.value='';
-    try{
-      const r=await fetch('/msg/send',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({from:myId,to:chatWith,text})});
-      const d=await r.json();
-      if(!d.ok){ toast(d.error||'Message failed'); input.value=text; }
-      // the SSE echo will append it; if SSE is down, append now as fallback
-      else if(!sseAlive) appendBubble(d.msg);
-    }catch(e){ toast('Message failed'); input.value=text; }
-  }
-  document.getElementById('msgSend').onclick=sendMsg;
-  document.getElementById('msgInput').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); sendMsg(); } });
-
-  // live incoming message (from SSE)
-  let sseAlive=false;
-  function handleIncomingMsg(m){
-    if(!m) return;
-    const other = m.from===myId ? m.to : m.from;
-    const viewingThis = pages.messages.classList.contains('active')
-      && msgChatView.style.display!=='none' && chatWith===other;
-    if(viewingThis){
-      appendBubble(m);
-      _fallbackKnown++;   // keep poll baseline in step with the live append
-      if(m.to===myId){ fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:other})}).catch(()=>{}); }
-    } else {
-      if(m.to===myId){ setMsgBadge(msgUnread+1); if(m.from!==myId) toast('New message'); }
-      // if the list is open, refresh it
-      if(pages.messages.classList.contains('active') && msgChatView.style.display==='none') loadThreadList();
-    }
-  }
-
-  function shortTime(ts){ if(!ts)return''; const d=new Date(ts); return d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
-  function dayLabel(ts){ const d=new Date(ts), now=new Date();
-    const same=(a,b)=>a.toDateString()===b.toDateString();
-    if(same(d,now))return'Today';
-    const y=new Date(now); y.setDate(now.getDate()-1); if(same(d,y))return'Yesterday';
-    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
-
-  // Reliable receive: poll the open thread + badge on a short timer.
-  // Runs even when SSE is up, as a safety net — the live push is the fast path,
-  // this guarantees delivery if a push is ever missed. Cheap (one small request).
-  async function pollMsgsFallback(){
-    refreshMsgBadge();
-    const viewingChat = pages.messages.classList.contains('active') && msgChatView.style.display!=='none' && chatWith;
-    if(viewingChat){
-      try{ const r=await fetch(`/msg/thread?me=${encodeURIComponent(myId)}&with=${encodeURIComponent(chatWith)}`,{cache:'no-store'});
-        const d=await r.json(); const list=d.messages||[];
-        if(list.length!==_fallbackKnown){ _fallbackKnown=list.length; renderBubbles(list);
-          fetch('/msg/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({me:myId,from:chatWith})}).catch(()=>{}); }
-      }catch(_){}
-    } else if(pages.messages.classList.contains('active')){
-      loadThreadList();
-    }
-  }
-  setInterval(pollMsgsFallback, 3000);
-
-  refreshMsgBadge();
-  setInterval(refreshMsgBadge, 30000);
-
-  // include my id on the stream so the server can push messages addressed to me
-  const streamQS = (circleQS ? circleQS+'&' : '?') + 'id=' + encodeURIComponent(myId);
-  function poll(){ fetch('/positions'+circleQS,{cache:'no-store'}).then(r=>r.json()).then(handle).catch(()=>{}); }
-  function onStreamData(data){
-    if(data && data.type==='msg'){ handleIncomingMsg(data.msg); return; }
-    handle(data);
-  }
-  function connect(){
-    poll();
-    try{ const es=new EventSource('/stream'+streamQS); es.onopen=()=>{sseAlive=true;}; es.onmessage=e=>{try{onStreamData(JSON.parse(e.data));}catch(_){}}; es.onerror=()=>{sseAlive=false;es.close();setInterval(poll,4000);}; }
-    catch(_){ setInterval(poll,4000); }
-  }
-  connect();
-  requestAnimationFrame(animate);
-})();
+<script src="app.js"></script>
+</body>
+</html>
