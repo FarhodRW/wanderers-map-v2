@@ -180,7 +180,7 @@
     const online=all.filter(f=>f.ageSec<90);
     onlineCount.innerHTML=`<span class="d"></span>${online.length} online`;
     const mp=myPos();
-    if(!all.length){ friendList.innerHTML=`<div class="empty">No one is sharing yet.<br>Share your circle code so friends can join.</div>`; return; }
+    if(!all.length){ friendList.innerHTML=`<div class="empty">No one is sharing yet.<br>Invite friends to a group so they appear here.</div>`; return; }
     friendList.innerHTML=all.map(f=>{
       const isMe=f.id===myId;
       const on=f.ageSec<90;
@@ -382,7 +382,7 @@
     shareFab.classList.toggle('on',on); shareLabel.textContent=on?'Sharing':'Share location'; fabPulse.style.display=on?'block':'none';
     shareSwitch.classList.toggle('on',on);
     stState.innerHTML=on?'<span class="d"></span>Sharing':'<span class="d" style="background:#B9B0A2"></span>Hidden';
-    stSub.textContent=on?'Your location is visible to your circle.':'You are not sharing your location.';
+    stSub.textContent=on?'Your location is visible to your groups.':'You are not sharing your location.';
   }
   function startShare(){
     if(!myName){ showTab('profile'); toast('Set your name first'); return; }
