@@ -7,6 +7,7 @@
 let trips = null;       // trips collection
 let profiles = null;    // profiles collection
 let messages = null;    // messages collection
+let places = null;      // saved places collection
 let ready = false;
 
 async function init(mongoUrl) {
@@ -19,8 +20,10 @@ async function init(mongoUrl) {
     trips = db.collection('trips');
     profiles = db.collection('profiles');
     messages = db.collection('messages');
+    places = db.collection('places');
     await trips.createIndex({ ownerId: 1, startedAt: -1 });
     await profiles.createIndex({ ownerId: 1 }, { unique: true });
+    await places.createIndex({ ownerId: 1, createdAt: -1 });
     // pair = the two ids sorted and joined, so both directions share one thread
     await messages.createIndex({ pair: 1, ts: 1 });
     await messages.createIndex({ to: 1, read: 1 });
@@ -28,7 +31,7 @@ async function init(mongoUrl) {
     console.log('  storage: connected to MongoDB — trips & profiles are permanent ✓');
   } catch (e) {
     console.error('  storage: MongoDB connection failed —', e.message);
-    trips = null; profiles = null; messages = null; ready = false;
+    trips = null; profiles = null; messages = null; places = null; ready = false;
   }
 }
 
@@ -140,7 +143,42 @@ async function markRead(me, from) {
   await messages.updateMany({ to: me, from, read: false }, { $set: { read: true } });
 }
 
+// ---- saved places ----
+const memPlaces = [];
+function pid() { return 'p-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+async function savePlace(ownerId, place) {
+  const doc = {
+    _id: place.id || pid(),
+    ownerId: String(ownerId),
+    name: String(place.name || 'Place').slice(0, 80),
+    label: ['home', 'work', 'star'].includes(place.label) ? place.label : 'star',
+    lat: Number(place.lat), lon: Number(place.lon),
+    createdAt: Date.now()
+  };
+  if (!ready || !places) {
+    const i = memPlaces.findIndex(p => p._id === doc._id && p.ownerId === doc.ownerId);
+    if (i >= 0) memPlaces[i] = doc; else memPlaces.push(doc);
+    return doc;
+  }
+  await places.replaceOne({ _id: doc._id }, doc, { upsert: true });
+  return doc;
+}
+
+async function listPlaces(ownerId) {
+  ownerId = String(ownerId);
+  if (!ready || !places) return memPlaces.filter(p => p.ownerId === ownerId).sort((a, b) => b.createdAt - a.createdAt);
+  return places.find({ ownerId }).sort({ createdAt: -1 }).toArray();
+}
+
+async function deletePlace(ownerId, id) {
+  ownerId = String(ownerId); id = String(id);
+  if (!ready || !places) { const i = memPlaces.findIndex(p => p._id === id && p.ownerId === ownerId); if (i >= 0) memPlaces.splice(i, 1); return; }
+  await places.deleteOne({ _id: id, ownerId });
+}
+
 module.exports = {
   init, saveTrip, listTrips, getTrip, deleteTrip, saveProfile, getProfiles,
-  saveMessage, getThread, getOverview, unreadCount, markRead
+  saveMessage, getThread, getOverview, unreadCount, markRead,
+  savePlace, listPlaces, deletePlace
 };
