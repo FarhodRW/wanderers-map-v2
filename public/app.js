@@ -431,7 +431,7 @@
   document.getElementById('tripStartBtn').onclick=()=>{ if(window._startFreeTrip) window._startFreeTrip(); else startTrip(); };
   document.getElementById('tripEndBtn').onclick=endTrip;
   ['profBtn3'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>showTab('profile');});
-  ['msgBtn4'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>alert('Messages — coming in a later phase.');});
+  ['msgBtn4'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=()=>openMessages();});
   document.getElementById('summaryBack').onclick=()=>showTab('trips');
 
   async function startTrip(){
