@@ -505,10 +505,12 @@
 
   // ---------- sharing ----------
   let sharing=false, watch=null, lastSent=0;
-  const shareFab=document.getElementById('shareFab'), shareLabel=document.getElementById('shareLabel'), fabPulse=shareFab.querySelector('.pulse');
+  const shareBar=document.getElementById('shareBar'), sbTitle=document.getElementById('sbTitle'), sbSub=document.getElementById('sbSub');
   const shareSwitch=document.getElementById('shareSwitch'), stState=document.getElementById('stState'), stSub=document.getElementById('stSub');
   function setSharingUI(on){
-    shareFab.classList.toggle('on',on); shareLabel.textContent=on?'Sharing':'Share location'; fabPulse.style.display=on?'block':'none';
+    shareBar.classList.toggle('on',on); shareBar.classList.toggle('off',!on);
+    sbTitle.textContent=on?"You're sharing":'Share your location';
+    sbSub.textContent=on?'Your groups can see you now — tap to stop':'Tap to let your groups see you on the map';
     shareSwitch.classList.toggle('on',on);
     stState.innerHTML=on?'<span class="d"></span>Sharing':'<span class="d" style="background:#B9B0A2"></span>Hidden';
     stSub.textContent=on?'Your location is visible to your groups.':'You are not sharing your location.';
@@ -554,7 +556,7 @@
     try{ if(window.AndroidBridge&&AndroidBridge.stopSharing) AndroidBridge.stopSharing(); }catch(_){}
     fetch('/leave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId})}).catch(()=>{});
   }
-  shareFab.onclick=()=>sharing?stopShare():startShare();
+  shareBar.onclick=()=>sharing?stopShare():startShare();
   shareSwitch.onclick=()=>sharing?stopShare():startShare();
   setSharingUI(false);
 
