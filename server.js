@@ -31,6 +31,8 @@ function metres(aLat, aLon, bLat, bLon) {
 const people = new Map();
 // id -> active trip
 const activeTrips = new Map();
+// group code -> friendly name, so joiners see the creator's name (best-effort, in-memory)
+const groupNames = new Map();
 
 function recordPosition(d) {
   const id = String(d.id);
@@ -356,6 +358,24 @@ const server = http.createServer((req, res) => {
         json(res, 200, { ok: true });
       } catch (e) { json(res, 400, { ok: false, error: e.message }); }
     });
+  }
+
+  // ---- groups (name registry; visibility itself still runs on circle codes) ----
+  if (req.method === 'POST' && url === '/group/register') {
+    return readBody(req, body => {
+      try {
+        const d = JSON.parse(body);
+        const code = String(d.code || '').toUpperCase().trim();
+        const name = String(d.name || '').slice(0, 40).trim();
+        if (!code || !name) throw new Error('code and name required');
+        groupNames.set(code, name);
+        json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
+  }
+  if (url === '/group/name') {
+    const code = String(qs.get('code') || '').toUpperCase().trim();
+    return json(res, 200, { ok: true, name: groupNames.get(code) || '' });
   }
 
   // static
