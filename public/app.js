@@ -1210,4 +1210,9 @@
   connect();
   syncMembership();
   requestAnimationFrame(animate);
+
+  // register the service worker so the app is installable (PWA / TWA)
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+  }
 })();
