@@ -18,6 +18,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -27,21 +29,28 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli@latest
 
+      - name: Point Bubblewrap at the preinstalled JDK + Android SDK
+        run: |
+          # The runner already has both installed and licensed. Tell Bubblewrap
+          # exactly where they are so it does NOT try to download its own SDK
+          # (which fails with "Terms and Conditions was not signed").
+          SDK_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          echo "Using JDK: $JAVA_HOME"
+          echo "Using SDK: $SDK_PATH"
+          ls -la "$SDK_PATH" || true
+          mkdir -p "$HOME/.bubblewrap"
+          printf '{\n  "jdkPath": "%s",\n  "androidSdkPath": "%s"\n}\n' "$JAVA_HOME" "$SDK_PATH" > "$HOME/.bubblewrap/config.json"
+          echo "---- config.json ----"; cat "$HOME/.bubblewrap/config.json"
+
       - name: Decode signing keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$HOME/android.keystore"
 
-      - name: Init TWA project (non-interactive)
-        env:
-          # point Bubblewrap at the tools already installed above so it never
-          # prompts to download them
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+      - name: Init TWA project
         run: |
           mkdir -p twa && cd twa
-          # feed newlines/defaults to any residual prompts
-          yes "" | bubblewrap init \
+          bubblewrap init \
             --manifest="https://wanderers-map-v2.onrender.com/manifest.webmanifest" \
-            --directory="." || true
+            --directory="."
           echo "---- files after init ----"; ls -la
 
       - name: Build & sign APK
@@ -50,11 +59,11 @@ jobs:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          yes "" | bubblewrap build \
+          bubblewrap build \
             --skipPwaValidation \
             --signingKeyPath="$HOME/android.keystore" \
-            --signingKeyAlias="wanderers" || true
-          echo "---- outputs ----"; ls -la *.apk *.aab 2>/dev/null || echo "none found"
+            --signingKeyAlias="wanderers"
+          echo "---- outputs ----"; ls -la *.apk *.aab 2>/dev/null || echo "NO APK PRODUCED"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -63,4 +72,4 @@ jobs:
           path: |
             twa/*.apk
             twa/*.aab
-          if-no-files-found: warn
+          if-no-files-found: error
