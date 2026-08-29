@@ -153,7 +153,7 @@ function broadcast() {
     catch (_) { clients.delete(c); }
   }
 }
-setInterval(broadcast, 5000);
+setInterval(broadcast, 2500);
 
 // Push an arbitrary event down the SSE stream(s) belonging to one user.
 // Used for live message delivery so the recipient sees it without polling.
