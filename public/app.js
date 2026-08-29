@@ -442,20 +442,23 @@
   fileInput.onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>openCropper(rd.result); rd.readAsDataURL(f); fileInput.value=''; };
 
   // ---- interactive photo cropper (drag to position, slider to zoom) ----
-  const cropScrim=document.getElementById('cropScrim'), cropStage=document.getElementById('cropStage'),
-        cropImg=document.getElementById('cropImg'), cropZoom=document.getElementById('cropZoom');
   const STAGE=260; let cropState={scale:1,minScale:1,x:0,y:0,natW:0,natH:0};
+  let cropImg=null, cropZoom=null;   // resolved lazily when the cropper opens
   function openCropper(src){
+    const cropScrim=document.getElementById('cropScrim');
+    const cropStage=document.getElementById('cropStage');
+    cropImg=document.getElementById('cropImg');
+    cropZoom=document.getElementById('cropZoom');
+    if(!cropScrim||!cropStage||!cropImg||!cropZoom){ toast('Could not open editor'); return; }
+    wireCropperOnce(cropScrim,cropStage);
     const im=new Image();
     im.onload=()=>{
       cropState.natW=im.naturalWidth; cropState.natH=im.naturalHeight;
-      // base scale so the image covers the square stage
       const cover=Math.max(STAGE/im.naturalWidth, STAGE/im.naturalHeight);
       cropState.minScale=cover; cropState.scale=cover;
       cropImg.src=src;
       cropImg.style.width=im.naturalWidth+'px'; cropImg.style.height=im.naturalHeight+'px';
       cropZoom.min=cover; cropZoom.max=cover*3; cropZoom.step=cover*0.01; cropZoom.value=cover;
-      // center it
       cropState.x=(STAGE-im.naturalWidth*cover)/2; cropState.y=(STAGE-im.naturalHeight*cover)/2;
       applyCrop();
       cropScrim.classList.add('on');
@@ -467,35 +470,37 @@
     cropState.x=Math.min(0,Math.max(STAGE-w,cropState.x));
     cropState.y=Math.min(0,Math.max(STAGE-h,cropState.y));
   }
-  function applyCrop(){ clampCrop(); cropImg.style.transform=`translate(${cropState.x}px,${cropState.y}px) scale(${cropState.scale})`; }
-  cropZoom.oninput=()=>{
-    const old=cropState.scale, ns=parseFloat(cropZoom.value);
-    // zoom around stage center
-    const cx=STAGE/2, cy=STAGE/2;
-    cropState.x=cx-(cx-cropState.x)*(ns/old);
-    cropState.y=cy-(cy-cropState.y)*(ns/old);
-    cropState.scale=ns; applyCrop();
-  };
-  // drag (mouse + touch)
-  let drag=null;
-  const startDrag=(px,py)=>{ drag={px,py,ox:cropState.x,oy:cropState.y}; };
-  const moveDrag=(px,py)=>{ if(!drag)return; cropState.x=drag.ox+(px-drag.px); cropState.y=drag.oy+(py-drag.py); applyCrop(); };
-  cropStage.addEventListener('mousedown',e=>startDrag(e.clientX,e.clientY));
-  window.addEventListener('mousemove',e=>moveDrag(e.clientX,e.clientY));
-  window.addEventListener('mouseup',()=>drag=null);
-  cropStage.addEventListener('touchstart',e=>{ if(e.touches[0])startDrag(e.touches[0].clientX,e.touches[0].clientY); },{passive:true});
-  cropStage.addEventListener('touchmove',e=>{ if(e.touches[0]){moveDrag(e.touches[0].clientX,e.touches[0].clientY);} },{passive:true});
-  cropStage.addEventListener('touchend',()=>drag=null);
-  document.getElementById('cropCancel').onclick=()=>cropScrim.classList.remove('on');
-  document.getElementById('cropSave').onclick=()=>{
-    const S=96, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const x=cv.getContext('2d');
-    // map the visible stage area back to source pixels
-    const sx=-cropState.x/cropState.scale, sy=-cropState.y/cropState.scale, sSide=STAGE/cropState.scale;
-    x.drawImage(cropImg,sx,sy,sSide,sSide,0,0,S,S);
-    myPhoto=cv.toDataURL('image/jpeg',0.72);
-    localStorage.setItem('wm_photo',myPhoto); photoCache.set(myId,myPhoto);
-    paintIdentity(); saveProfile(); cropScrim.classList.remove('on'); toast('Photo updated');
-  };
+  function applyCrop(){ if(!cropImg)return; clampCrop(); cropImg.style.transform=`translate(${cropState.x}px,${cropState.y}px) scale(${cropState.scale})`; }
+
+  let cropperWired=false;
+  function wireCropperOnce(cropScrim,cropStage){
+    if(cropperWired) return; cropperWired=true;
+    cropZoom.oninput=()=>{
+      const old=cropState.scale, ns=parseFloat(cropZoom.value);
+      const cx=STAGE/2, cy=STAGE/2;
+      cropState.x=cx-(cx-cropState.x)*(ns/old);
+      cropState.y=cy-(cy-cropState.y)*(ns/old);
+      cropState.scale=ns; applyCrop();
+    };
+    let drag=null;
+    const startDrag=(px,py)=>{ drag={px,py,ox:cropState.x,oy:cropState.y}; };
+    const moveDrag=(px,py)=>{ if(!drag)return; cropState.x=drag.ox+(px-drag.px); cropState.y=drag.oy+(py-drag.py); applyCrop(); };
+    cropStage.addEventListener('mousedown',e=>startDrag(e.clientX,e.clientY));
+    window.addEventListener('mousemove',e=>moveDrag(e.clientX,e.clientY));
+    window.addEventListener('mouseup',()=>drag=null);
+    cropStage.addEventListener('touchstart',e=>{ if(e.touches[0])startDrag(e.touches[0].clientX,e.touches[0].clientY); },{passive:true});
+    cropStage.addEventListener('touchmove',e=>{ if(e.touches[0]){moveDrag(e.touches[0].clientX,e.touches[0].clientY);} },{passive:true});
+    cropStage.addEventListener('touchend',()=>drag=null);
+    document.getElementById('cropCancel').onclick=()=>cropScrim.classList.remove('on');
+    document.getElementById('cropSave').onclick=()=>{
+      const S=96, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const x=cv.getContext('2d');
+      const sx=-cropState.x/cropState.scale, sy=-cropState.y/cropState.scale, sSide=STAGE/cropState.scale;
+      x.drawImage(cropImg,sx,sy,sSide,sSide,0,0,S,S);
+      myPhoto=cv.toDataURL('image/jpeg',0.72);
+      localStorage.setItem('wm_photo',myPhoto); photoCache.set(myId,myPhoto);
+      paintIdentity(); saveProfile(); cropScrim.classList.remove('on'); toast('Photo updated');
+    };
+  }
   async function saveProfile(){ try{ await fetch('/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId,name:myName,photo:myPhoto||null,status:myStatus})}); }catch(_){} }
 
   // ---------- sharing ----------
