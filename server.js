@@ -137,6 +137,8 @@ function visibleTo(viewerCircles) {
       battery: (typeof p.battery === 'number') ? p.battery : null,
       status: p.status || '',
       ageSec: Math.round((now - p.ts) / 1000),
+      // only the circles shared with the viewer (don't reveal their other groups)
+      circles: pc.filter(c => vc.includes(c)),
       trail: (p.trail || []).map(q => [Math.round(q.lat * 1e5) / 1e5, Math.round(q.lon * 1e5) / 1e5, Math.round((now - q.ts) / 1000)])
     });
   }
@@ -376,6 +378,39 @@ const server = http.createServer((req, res) => {
   if (url === '/group/name') {
     const code = String(qs.get('code') || '').toUpperCase().trim();
     return json(res, 200, { ok: true, name: groupNames.get(code) || '' });
+  }
+
+  // ---- group membership (roster) ----
+  if (req.method === 'POST' && url === '/group/join') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        const code = String(d.code || '').toUpperCase().trim();
+        if (!code || !d.id) throw new Error('code and id required');
+        if (d.name && code) groupNames.set(code, String(d.groupName || groupNames.get(code) || '').slice(0, 40) || groupNames.get(code) || '');
+        if (store) await store.joinGroup(code, { id: d.id, name: d.name, groupName: d.groupName });
+        json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
+  }
+  if (req.method === 'POST' && url === '/group/leave') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        const code = String(d.code || '').toUpperCase().trim();
+        if (!code || !d.id) throw new Error('code and id required');
+        if (store) await store.leaveGroup(code, d.id);
+        json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
+  }
+  if (url === '/group/members') {
+    const codes = (qs.get('codes') || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!codes.length) return json(res, 200, { ok: true, members: {} });
+    if (!store) return json(res, 200, { ok: true, members: {} });
+    return store.groupMembers(codes)
+      .then(m => json(res, 200, { ok: true, members: m }))
+      .catch(e => json(res, 500, { ok: false, error: e.message }));
   }
 
   // static
