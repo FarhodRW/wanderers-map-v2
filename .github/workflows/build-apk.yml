@@ -58,11 +58,14 @@ jobs:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # 'update' regenerates the full Android project from twa-manifest.json.
-          bubblewrap update --manifest="./twa-manifest.json" || true
+          # Pipe "yes" into every prompt (regenerate? Y). 'yes' streams y-newline
+          # forever so any confirmation is auto-accepted; the build itself is
+          # driven by twa-manifest.json + the env-var keystore passwords.
+          echo "== update =="
+          yes | bubblewrap update --manifest="./twa-manifest.json"
           echo "---- files after update ----"; ls -la
-          # then build & sign — all answers already in the manifest, no prompts.
-          bubblewrap build --skipPwaValidation --manifest="./twa-manifest.json"
+          echo "== build =="
+          yes | bubblewrap build --skipPwaValidation --manifest="./twa-manifest.json"
           echo "---- outputs ----"; ls -la *.apk *.aab 2>/dev/null || echo "NO APK PRODUCED"
 
       - name: Upload APK
