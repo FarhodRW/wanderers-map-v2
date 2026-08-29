@@ -139,6 +139,22 @@
   .grp-row .gact svg{width:18px;height:18px;}
   .grp-row .gact.share{color:var(--ember);}
   .grp-empty{font-size:12.5px;color:var(--text-2);padding:6px 2px;}
+  .grp-wrap{margin-bottom:8px;}
+  .grp-wrap .grp-row{margin-bottom:0;}
+  .gtap{cursor:pointer;}
+  .grp-members{background:var(--surface-2);border-radius:0 0 12px 12px;margin-top:-4px;padding:8px 10px 6px;}
+  .gm-row{display:flex;align-items:center;gap:10px;padding:7px 4px;cursor:pointer;}
+  .gm-row.gm-me{cursor:default;opacity:.85;}
+  .gm-av{width:30px;height:30px;border-radius:50%;position:relative;flex:none;background:var(--surface);}
+  .gm-av img{width:100%;height:100%;object-fit:cover;border-radius:50%;border:1.5px solid var(--ember);}
+  .gm-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:var(--ember);border-radius:50%;border:1.5px solid var(--ember);}
+  .gm-av .livedot{position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;border:2px solid var(--surface-2);z-index:2;}
+  .gm-av .livedot.on{background:#3FB950;} .gm-av .livedot.off{background:var(--text-2);}
+  .gm-t{flex:1;min-width:0;} .gm-t b{font-size:13.5px;display:block;} .gm-t span{font-size:11.5px;color:var(--text-2);}
+  .gm-dist{font-size:12px;font-weight:600;color:var(--ember);flex:none;}
+  .gm-msg{background:none;border:none;padding:5px;cursor:pointer;color:var(--ember);flex:none;}
+  .gm-msg svg{width:19px;height:19px;}
+  .gm-empty{font-size:12px;color:var(--text-2);padding:8px 4px;line-height:1.5;}
   .code-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--ember);color:var(--ember);
     border-radius:20px;padding:8px 14px;font-weight:700;font-size:14px;letter-spacing:.04em;background:none;cursor:pointer;flex:none;}
   .code-pill svg{width:15px;height:15px;}
@@ -152,10 +168,10 @@
   .flist-head .cnt .d{width:7px;height:7px;border-radius:50%;background:var(--live);}
   .frow{display:flex;align-items:center;gap:13px;padding:12px 16px;cursor:pointer;}
   .frow:active{background:var(--surface-2);}
-  .fav{position:relative;width:52px;height:52px;flex:none;border-radius:50%;overflow:hidden;background:var(--surface-2);}
-  .fav img{width:100%;height:100%;object-fit:cover;}
-  .fav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--text-2);font-size:19px;}
-  .fav .livedot{position:absolute;right:1px;top:1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);}
+  .fav{position:relative;width:52px;height:52px;flex:none;border-radius:50%;background:var(--surface-2);}
+  .fav img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+  .fav .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--text-2);font-size:19px;border-radius:50%;}
+  .fav .livedot{position:absolute;right:1px;top:1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);z-index:2;}
   .fav .livedot.on{background:var(--live);}
   .fav .livedot.off{background:#B9B0A2;}
   .fmeta{flex:1;min-width:0;}
@@ -175,6 +191,21 @@
   .prof-av .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:40px;color:var(--text-2);}
   .prof-av .edit{position:absolute;right:4px;bottom:4px;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;}
   .prof-av .edit svg{width:14px;height:14px;color:var(--text-2);}
+  /* photo crop overlay */
+  .crop-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:6000;display:none;align-items:center;justify-content:center;padding:20px;}
+  .crop-scrim.on{display:flex;}
+  .crop-box{background:var(--sheet);border-radius:22px;padding:20px;width:100%;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+  .crop-title{font-weight:700;font-size:16px;text-align:center;margin-bottom:16px;color:var(--text);}
+  .crop-stage{position:relative;width:260px;height:260px;margin:0 auto;border-radius:14px;overflow:hidden;background:#000;touch-action:none;cursor:grab;}
+  .crop-stage:active{cursor:grabbing;}
+  .crop-stage img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none;}
+  .crop-ring{position:absolute;inset:0;pointer-events:none;box-shadow:0 0 0 999px rgba(0,0,0,.45);border-radius:50%;}
+  .crop-zoom{display:flex;align-items:center;gap:10px;margin:16px 4px 4px;color:var(--text-2);}
+  .crop-zoom input{flex:1;accent-color:var(--ember);}
+  .crop-actions{display:flex;gap:10px;margin-top:16px;}
+  .crop-btn{flex:1;padding:12px;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;border:none;}
+  .crop-btn.ghost{background:var(--surface-2);color:var(--text);}
+  .crop-btn.primary{background:var(--ember);color:#fff;}
   .prof-name{font-size:22px;font-weight:700;}
   .prof-status{display:flex;align-items:center;gap:10px;width:calc(100% - 40px);margin:0 20px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
   .prof-status input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:14px;color:var(--text);}
@@ -639,5 +670,24 @@
   </div>
 
 <script src="app.js"></script>
+  <!-- ===== PHOTO CROP OVERLAY ===== -->
+  <div class="crop-scrim" id="cropScrim">
+    <div class="crop-box">
+      <div class="crop-title">Position your photo</div>
+      <div class="crop-stage" id="cropStage">
+        <img id="cropImg" alt="" draggable="false">
+        <div class="crop-ring"></div>
+      </div>
+      <div class="crop-zoom">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6"/></svg>
+        <input type="range" id="cropZoom" min="1" max="3" step="0.01" value="1">
+      </div>
+      <div class="crop-actions">
+        <button class="crop-btn ghost" id="cropCancel">Cancel</button>
+        <button class="crop-btn primary" id="cropSave">Save</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
