@@ -522,6 +522,11 @@
     toast('Requesting location…');
     navigator.geolocation.getCurrentPosition(()=>{
       sharing=true; setSharingUI(true); beginWatch();
+      // If we're inside the native app, also start the background service so
+      // sharing continues with the screen off.
+      try{ if(window.AndroidBridge&&AndroidBridge.startSharing){
+        AndroidBridge.startSharing(myId,myName,groupIds().join(','),myStatus||'');
+      }}catch(_){}
     }, err=>{
       if(err.code===1) toast('Location is blocked. Enable it for this site in browser settings.');
       else if(err.code===2) toast('Can’t find your location. Try outside or near a window.');
@@ -546,6 +551,7 @@
   function stopShare(){
     sharing=false; setSharingUI(false);
     if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null;}
+    try{ if(window.AndroidBridge&&AndroidBridge.stopSharing) AndroidBridge.stopSharing(); }catch(_){}
     fetch('/leave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:myId})}).catch(()=>{});
   }
   shareFab.onclick=()=>sharing?stopShare():startShare();
@@ -1213,6 +1219,14 @@
 
   // register the service worker so the app is installable (PWA / TWA)
   if('serviceWorker' in navigator){
-    window.addEventListener('load',()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('/sw.js').then(reg=>{
+        // when a new SW takes control (after a deploy), reload once to get fresh code
+        let reloaded=false;
+        navigator.serviceWorker.addEventListener('controllerchange',()=>{
+          if(reloaded) return; reloaded=true; location.reload();
+        });
+      }).catch(()=>{});
+    });
   }
 })();
