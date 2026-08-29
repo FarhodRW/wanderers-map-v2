@@ -8,6 +8,7 @@ let trips = null;       // trips collection
 let profiles = null;    // profiles collection
 let messages = null;    // messages collection
 let places = null;      // saved places collection
+let members = null;     // group membership collection
 let ready = false;
 
 async function init(mongoUrl) {
@@ -21,9 +22,13 @@ async function init(mongoUrl) {
     profiles = db.collection('profiles');
     messages = db.collection('messages');
     places = db.collection('places');
+    members = db.collection('members');
     await trips.createIndex({ ownerId: 1, startedAt: -1 });
     await profiles.createIndex({ ownerId: 1 }, { unique: true });
     await places.createIndex({ ownerId: 1, createdAt: -1 });
+    // one row per (group, user); groupCode indexed for fast roster lookups
+    await members.createIndex({ groupCode: 1, userId: 1 }, { unique: true });
+    await members.createIndex({ groupCode: 1 });
     // pair = the two ids sorted and joined, so both directions share one thread
     await messages.createIndex({ pair: 1, ts: 1 });
     await messages.createIndex({ to: 1, read: 1 });
@@ -31,7 +36,7 @@ async function init(mongoUrl) {
     console.log('  storage: connected to MongoDB — trips & profiles are permanent ✓');
   } catch (e) {
     console.error('  storage: MongoDB connection failed —', e.message);
-    trips = null; profiles = null; messages = null; places = null; ready = false;
+    trips = null; profiles = null; messages = null; places = null; members = null; ready = false;
   }
 }
 
@@ -177,8 +182,49 @@ async function deletePlace(ownerId, id) {
   await places.deleteOne({ _id: id, ownerId });
 }
 
+// ---- group membership (persistent roster; independent of location sharing) ----
+const memMembers = [];
+async function joinGroup(groupCode, user) {
+  const doc = {
+    groupCode: String(groupCode).toUpperCase(),
+    userId: String(user.id),
+    name: String(user.name || 'Wanderer').slice(0, 40),
+    groupName: String(user.groupName || '').slice(0, 40),
+    joinedAt: Date.now()
+  };
+  if (!ready || !members) {
+    const i = memMembers.findIndex(m => m.groupCode === doc.groupCode && m.userId === doc.userId);
+    if (i >= 0) memMembers[i] = { ...memMembers[i], ...doc }; else memMembers.push(doc);
+    return doc;
+  }
+  await members.updateOne(
+    { groupCode: doc.groupCode, userId: doc.userId },
+    { $set: { name: doc.name, groupName: doc.groupName }, $setOnInsert: { joinedAt: doc.joinedAt } },
+    { upsert: true }
+  );
+  return doc;
+}
+async function leaveGroup(groupCode, userId) {
+  groupCode = String(groupCode).toUpperCase(); userId = String(userId);
+  if (!ready || !members) { const i = memMembers.findIndex(m => m.groupCode === groupCode && m.userId === userId); if (i >= 0) memMembers.splice(i, 1); return; }
+  await members.deleteOne({ groupCode, userId });
+}
+// roster for one or more group codes -> { CODE: [ {userId,name}, ... ] }
+async function groupMembers(codes) {
+  const list = (Array.isArray(codes) ? codes : [codes]).map(c => String(c).toUpperCase()).filter(Boolean);
+  if (!list.length) return {};
+  let rows;
+  if (!ready || !members) rows = memMembers.filter(m => list.includes(m.groupCode));
+  else rows = await members.find({ groupCode: { $in: list } }).toArray();
+  const out = {};
+  list.forEach(c => out[c] = []);
+  for (const m of rows) { (out[m.groupCode] = out[m.groupCode] || []).push({ userId: m.userId, name: m.name, joinedAt: m.joinedAt }); }
+  return out;
+}
+
 module.exports = {
   init, saveTrip, listTrips, getTrip, deleteTrip, saveProfile, getProfiles,
   saveMessage, getThread, getOverview, unreadCount, markRead,
-  savePlace, listPlaces, deletePlace
+  savePlace, listPlaces, deletePlace,
+  joinGroup, leaveGroup, groupMembers
 };
