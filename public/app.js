@@ -463,12 +463,12 @@
   const navPanel=$('navPanel'), freeBadge=$('freeBadge'), gpsChip=$('gpsChip');
 
   let searchTimer=null;
-  searchInput.addEventListener('focus',()=>document.body.classList.add('searching'));
+  searchInput.addEventListener('focus',()=>{ document.body.classList.add('searching'); if(!searchInput.value.trim()) showSavedPlaces(); });
   searchInput.addEventListener('input',()=>{
     const q=searchInput.value.trim();
     $('searchX').style.display=q?'block':'none';
     clearTimeout(searchTimer);
-    if(q.length<2){ searchResults.classList.remove('on'); return; }
+    if(q.length<2){ showSavedPlaces(); return; }
     searchTimer=setTimeout(()=>doSearch(q),380);
   });
   $('searchX').onclick=()=>{ searchInput.value=''; $('searchX').style.display='none'; searchResults.classList.remove('on'); };
@@ -534,6 +534,60 @@
   }
   $('rhBack').onclick=closeRoutePreview;
   function closeRoutePreview(){ routeSheet.classList.remove('on'); destination=null; }
+
+  // ================= SAVED PLACES =================
+  let savedPlaces=[];
+  const placeIcon=label=>{
+    if(label==='home') return '<path d="M3 11.5 12 4l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>';
+    if(label==='work') return '<path d="M4 7h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm5-3h6a1 1 0 0 1 1 1v2H8V5a1 1 0 0 1 1-1z"/>';
+    return '<path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.8 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/>';
+  };
+  async function loadSavedPlaces(){
+    try{ const r=await fetch('/places/list?ownerId='+encodeURIComponent(myId),{cache:'no-store'});
+      const d=await r.json(); if(d.ok) savedPlaces=d.places||[]; }catch(_){}
+    return savedPlaces;
+  }
+  async function showSavedPlaces(){
+    searchResults.classList.add('on');
+    if(!savedPlaces.length) await loadSavedPlaces();
+    if(!savedPlaces.length){ searchResults.innerHTML=`<div class="sr-empty">No saved places yet.<br>Pick a destination and tap Pin to save it.</div>`; return; }
+    searchResults.innerHTML=savedPlaces.map((p,i)=>`
+      <div class="sr-item" data-i="${i}">
+        <svg class="sr-pin" viewBox="0 0 24 24" fill="currentColor">${placeIcon(p.label)}</svg>
+        <div class="t"><b>${esc(p.name)}</b><span>${p.label==='home'?'Home':p.label==='work'?'Work':'Saved place'}</span></div>
+        <svg class="sr-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </div>`).join('') +
+      `<div class="sr-empty" style="border-top:1px solid var(--line)">Tap to route · long-press to remove</div>`;
+    searchResults.querySelectorAll('.sr-item').forEach(el=>{
+      const p=savedPlaces[el.dataset.i];
+      el.onclick=()=>{ document.body.classList.remove('searching'); searchResults.classList.remove('on'); searchInput.value=''; openRoutePreview(p.lat,p.lon,p.name); };
+      let press; el.addEventListener('touchstart',()=>{ press=setTimeout(()=>removePlace(p),600); },{passive:true});
+      el.addEventListener('touchend',()=>clearTimeout(press));
+      el.addEventListener('contextmenu',ev=>{ ev.preventDefault(); removePlace(p); });
+    });
+  }
+  async function removePlace(p){
+    if(!confirm('Remove "'+p.name+'" from saved places?')) return;
+    try{ await fetch('/places/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ownerId:myId,id:p._id})});
+      savedPlaces=savedPlaces.filter(x=>x._id!==p._id); showSavedPlaces(); toast('Removed'); }catch(_){ toast('Could not remove'); }
+  }
+  async function savePinnedPlace(){
+    if(!destination){ toast('Pick a destination first'); return; }
+    const name=prompt('Save this place as:', destination.name||'Saved place');
+    if(name===null) return;
+    // quick label guess from the name
+    let label='star'; const low=name.toLowerCase();
+    if(low.includes('home')||low.includes('uy')) label='home';
+    else if(low.includes('work')||low.includes('ish')||low.includes('office')) label='work';
+    try{
+      const r=await fetch('/places/save',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ownerId:myId,name:name.trim()||'Saved place',label,lat:destination.lat,lon:destination.lon})});
+      const d=await r.json();
+      if(d.ok){ savedPlaces.unshift(d.place); toast('Saved ★'); }
+      else toast(d.error||'Could not save');
+    }catch(_){ toast('Could not save'); }
+  }
+  loadSavedPlaces();
 
   const OSRM={driving:'driving',cycling:'cycling',walking:'walking'};
   // realistic average speeds for a mid-size Uzbek city (km/h) — accounts for
@@ -630,7 +684,7 @@
     if(routeData[curMode]) renderRoutes(); else fetchMode(curMode,myPos()).then(r=>{if(r){routeData[curMode]=r;renderRoutes();}});
   });
   $('raStart').onclick=()=>startNavigation();
-  $('raPin').onclick=()=>toast('Saved places — coming soon');
+  $('raPin').onclick=()=>savePinnedPlace();
   $('raSteps').onclick=()=>{ const routes=routeData[curMode]; if(routes&&routes[chosenIdx]) showSteps(routes[chosenIdx]); };
 
   function startNavigation(){
