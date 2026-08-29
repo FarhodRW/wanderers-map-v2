@@ -327,6 +327,37 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // ---- saved places ----
+  if (req.method === 'POST' && url === '/places/save') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        const owner = String(d.ownerId || '');
+        if (!owner || d.lat == null || d.lon == null) throw new Error('ownerId, lat, lon required');
+        const saved = store ? await store.savePlace(owner, d) : { ...d, _id: 'mem' };
+        json(res, 200, { ok: true, place: saved });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
+  }
+  if (url === '/places/list') {
+    const owner = qs.get('ownerId');
+    if (!owner) return json(res, 400, { ok: false });
+    if (!store) return json(res, 200, { ok: true, places: [] });
+    return store.listPlaces(owner)
+      .then(p => json(res, 200, { ok: true, places: p }))
+      .catch(e => json(res, 500, { ok: false, error: e.message }));
+  }
+  if (req.method === 'POST' && url === '/places/delete') {
+    return readBody(req, async body => {
+      try {
+        const d = JSON.parse(body);
+        if (!d.ownerId || !d.id) throw new Error('ownerId and id required');
+        if (store) await store.deletePlace(d.ownerId, d.id);
+        json(res, 200, { ok: true });
+      } catch (e) { json(res, 400, { ok: false, error: e.message }); }
+    });
+  }
+
   // static
   const file = url === '/' ? '/index.html' : url;
   const fp = path.join(__dirname, 'public', path.normalize(file).replace(/^(\.\.[/\\])+/, ''));
