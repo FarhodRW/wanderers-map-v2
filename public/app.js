@@ -22,7 +22,20 @@
   let myName=localStorage.getItem('wm_name')||'';
   let myPhoto=localStorage.getItem('wm_photo')||'';
   let myStatus=localStorage.getItem('wm_status')||'';
-  let myCircle=localStorage.getItem('wm_circle')||'';
+  // Groups replace the old single "circle". Each group = {id, name}. The id is the
+  // code the visibility engine matches on; name is a friendly label. Multiple allowed.
+  let myGroups=[];
+  try{ myGroups=JSON.parse(localStorage.getItem('wm_groups')||'[]'); }catch(_){ myGroups=[]; }
+  if(!Array.isArray(myGroups)) myGroups=[];
+  // migrate an old single circle into the groups list, once
+  const _oldCircle=localStorage.getItem('wm_circle')||'';
+  if(_oldCircle && !myGroups.some(g=>g.id===_oldCircle)){
+    myGroups.push({id:_oldCircle,name:_oldCircle});
+    localStorage.setItem('wm_groups',JSON.stringify(myGroups));
+    localStorage.removeItem('wm_circle');
+  }
+  const groupIds=()=>myGroups.map(g=>g.id);
+  function saveGroups(){ localStorage.setItem('wm_groups',JSON.stringify(myGroups)); }
 
   function initials(n){ n=(n||'').trim(); return n?n[0].toUpperCase():'?'; }
 
@@ -36,11 +49,7 @@
     if(myPhoto){pImg.src=myPhoto;pImg.style.display='block';pIni.style.display='none';}else{pImg.style.display='none';pIni.style.display='flex';pIni.textContent=initials(myName);}
     document.getElementById('profName').textContent = myName || 'Set your name';
     document.getElementById('statusInput').value = myStatus;
-    // circle pills
-    const code = myCircle || '—';
-    document.getElementById('codePill').childNodes[0].nodeValue = code+' ';
-    document.getElementById('codePill2').childNodes[0].nodeValue = code+' ';
-    document.getElementById('circleDesc').textContent = myCircle ? ('In circle '+myCircle+' — share this code with your people.') : 'Not in a circle yet.';
+    renderGroups();
   }
   paintIdentity(); applyThemeUI();
 
@@ -75,7 +84,7 @@
   setTimeout(()=>map.invalidateSize(),200);
   window.addEventListener('load',()=>map.invalidateSize());
 
-  const circleQS = myCircle ? ('?circles='+encodeURIComponent(myCircle)) : '';
+  const circleQS = groupIds().length ? ('?circles='+encodeURIComponent(groupIds().join(','))) : '';
 
   // ---------- people & photos ----------
   const people=new Map();     // id -> {marker,lat,lon,tLat,tLon,data,stepAcc,side,_plat,_plon}
@@ -253,18 +262,105 @@
     pathLayer.push(dot);
   }
 
-  // ---------- circles ----------
+  // ---------- groups (named, join by link or code, multiple) ----------
   function makeCode(){const A='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let s='WAND-';for(let i=0;i<4;i++)s+=A[Math.floor(Math.random()*A.length)];return s;}
-  function setCircle(c){ myCircle=(c||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,12); localStorage.setItem('wm_circle',myCircle); paintIdentity(); setTimeout(()=>location.reload(),300); }
-  function createCircle(){ const c=makeCode(); const msg=`Join my Wanderers' Map circle — open ${location.origin} and enter code ${c}`; if(navigator.share)navigator.share({text:msg}).catch(()=>{}); else if(navigator.clipboard)navigator.clipboard.writeText(c); setCircle(c); }
-  function joinCircle(){ const c=prompt('Enter your circle code:'); if(c&&c.trim()) setCircle(c.trim()); }
-  function leaveCircle(){ if(confirm('Leave this circle?')) setCircle(''); }
-  function copyCode(){ if(myCircle&&navigator.clipboard){navigator.clipboard.writeText(myCircle); toast('Code copied');} }
-  ['createCircle','createCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=createCircle;});
-  ['joinCircle','joinCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=joinCircle;});
-  document.getElementById('leaveCircle').onclick=leaveCircle;
-  ['codePill','codePill2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=copyCode;});
-  document.getElementById('addFriend').onclick=()=>{ if(myCircle) copyCode(); else createCircle(); };
+  function grpInitial(name){ name=(name||'').trim(); return name?name[0].toUpperCase():'#'; }
+
+  function renderGroups(){
+    const html = myGroups.length
+      ? myGroups.map((g,i)=>`
+        <div class="grp-row" data-i="${i}">
+          <div class="gi">${grpInitial(g.name)}</div>
+          <div class="gt"><b>${esc(g.name)}</b><span>${esc(g.id)}</span></div>
+          <button class="gact share" data-act="share" title="Invite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg></button>
+          <button class="gact" data-act="leave" title="Leave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+        </div>`).join('')
+      : `<div class="grp-empty">No groups yet. Create one or join with a link/code.</div>`;
+    ['groupList','groupListProfile'].forEach(id=>{ const box=document.getElementById(id); if(box) box.innerHTML=html; });
+    const desc=document.getElementById('circleDesc');
+    if(desc) desc.textContent = myGroups.length ? (myGroups.length+' group'+(myGroups.length>1?'s':'')+' — friends here can see you when you share.') : "You're not in any group yet.";
+    // wire row buttons
+    document.querySelectorAll('.grp-row').forEach(row=>{
+      const g=myGroups[row.dataset.i];
+      row.querySelectorAll('.gact').forEach(btn=>btn.onclick=()=>{
+        if(btn.dataset.act==='share') shareGroup(g);
+        else leaveGroup(g);
+      });
+    });
+  }
+
+  function inviteText(g){ return `Join my group "${g.name}" on The Wanderers' Map:\n${location.origin}/?join=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}\n\nOr open ${location.origin} and enter code ${g.id}`; }
+  function shareGroup(g){
+    const msg=inviteText(g);
+    if(navigator.share) navigator.share({title:g.name,text:msg}).catch(()=>{});
+    else if(navigator.clipboard){ navigator.clipboard.writeText(msg); toast('Invite copied'); }
+    else prompt('Share this invite:',msg);
+  }
+
+  async function registerGroupName(id,name){
+    try{ await fetch('/group/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:id,name})}); }catch(_){}
+  }
+  async function lookupGroupName(id){
+    try{ const r=await fetch('/group/name?code='+encodeURIComponent(id)); const d=await r.json(); return (d&&d.name)||''; }catch(_){ return ''; }
+  }
+
+  function addGroup(id,name){
+    id=(id||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);
+    if(!id) return false;
+    if(myGroups.some(g=>g.id===id)){ toast('Already in that group'); return false; }
+    myGroups.push({id,name:(name||id).slice(0,40)}); saveGroups(); renderGroups();
+    return true;
+  }
+
+  function createGroup(){
+    const name=prompt('Name your group (e.g. "Weekend crew"):');
+    if(name===null) return;
+    const nm=(name.trim()||'My group').slice(0,40);
+    const id=makeCode();
+    addGroup(id,nm);
+    registerGroupName(id,nm);
+    // offer the invite right away
+    setTimeout(()=>shareGroup({id,name:nm}),200);
+    reloadSoon();
+  }
+
+  async function joinGroup(){
+    const raw=prompt('Enter a group code (or paste an invite link):');
+    if(raw===null) return;
+    let id=raw.trim(), name='';
+    // if they pasted a link, pull code + name out of it
+    const m=raw.match(/[?&]join=([^&\s]+)(?:&name=([^&\s]+))?/);
+    if(m){ id=decodeURIComponent(m[1]); if(m[2]) name=decodeURIComponent(m[2]); }
+    id=id.toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);
+    if(!id){ toast('No valid code found'); return; }
+    if(!name) name=await lookupGroupName(id);   // pick up the creator's name
+    if(addGroup(id,name||id)){ if(name) registerGroupName(id,name); reloadSoon(); }
+  }
+
+  function leaveGroup(g){
+    if(!confirm(`Leave "${g.name}"?`)) return;
+    myGroups=myGroups.filter(x=>x.id!==g.id); saveGroups(); renderGroups(); reloadSoon();
+  }
+
+  // group membership changes what you see, so a quick reload re-subscribes cleanly
+  let _reloadT=null;
+  function reloadSoon(){ clearTimeout(_reloadT); _reloadT=setTimeout(()=>location.reload(),500); }
+
+  ['createCircle','createCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=createGroup;});
+  ['joinCircle','joinCircle2'].forEach(id=>{const e=document.getElementById(id);if(e)e.onclick=joinGroup;});
+
+  // auto-join from an invite link (?join=CODE&name=NAME)
+  (function handleInviteLink(){
+    const p=new URLSearchParams(location.search);
+    const j=p.get('join');
+    if(j){
+      const nm=p.get('name')||'';
+      if(addGroup(j,nm)){ if(nm) registerGroupName(j.toUpperCase(),nm); toast('Joined '+(nm||'group')); }
+      // clean the URL so a refresh doesn't rejoin
+      history.replaceState({},'',location.pathname);
+      reloadSoon();
+    }
+  })();
 
   function toast(t){ /* minimal */ const d=document.createElement('div'); d.textContent=t; d.style.cssText='position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:#141210;color:#fff;padding:10px 18px;border-radius:20px;font:14px Inter;z-index:5000'; document.body.appendChild(d); setTimeout(()=>d.remove(),1600); }
 
@@ -310,7 +406,7 @@
       if(c.accuracy>60&&sentOnce) return;
       if(now-lastSent<800) return; lastSent=now; sentOnce=true;
       fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:myCircle?[myCircle]:[],
+        id:myId,name:myName,lat:c.latitude,lon:c.longitude,circles:groupIds(),
         gspeed:(c.speed>=0)?c.speed:null,heading:(c.heading!=null&&!isNaN(c.heading))?c.heading:null,
         battery:window._batt??null,status:myStatus })}).catch(()=>{});
     },err=>{
